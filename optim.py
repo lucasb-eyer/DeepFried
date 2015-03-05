@@ -2,6 +2,7 @@
 
 from DeepFried.util import batched
 
+import numpy as _np
 import theano as _th
 import theano.tensor as _T
 
@@ -137,4 +138,78 @@ class StreaMiniSGD(StreaMiniOptimizer):
             outputs=self.outs,
             updates=[(p, p - self.sh_learningrate * gp) for p, gp in zip(self.model.params, g)],
             name="StreaMiniSGD train"
+        )
+
+
+class StreaMiniMomentum(StreaMiniOptimizer):
+    """
+    TL;DR: Nesterov allows for larger momentum to be used, making it better.
+           Very finicky parameter-selection.
+
+    Implements both the "Classical Momentum (CM)" and "Nesterov's
+    Accelerated Gradient (NAG)" which are explained in further detail in
+
+    "On the importance of initialization and momentum in deep learning"
+
+    But the equation for NAG has been reshuffled by Nicolas Boulanger in
+
+    https://github.com/lisa-lab/pylearn2/pull/136#issuecomment-10381617
+
+    for easier implementation in Theano. The updates are:
+
+        v_{e+1} = mom * v_e - lr * grad(p_e)
+        p_{e+1} = p_e + v_{e+1}
+
+    for CM, and
+
+        p_{e+1} = p_e + mom * v_{e+1} - lr * grad(p_e)
+
+    for Nicolas' reformulated NAG.
+
+    Additional parameters added to `fit_epoch`:
+
+    - `lrate`: The learning-rate.
+    - `momentum`: The momentum, defaulting to the one passed at construction.
+    """
+
+    def __init__(self, batchsize, model, cost, momentum, nesterov=False, *args, **kwargs):
+        """
+        See `StreaMiniOptimizer` for details on the arguments.
+
+        - `momentum`: The amount of momentum to use, typically something around
+            0.9, 0.95 or 0.99. This value sets the default, but it can also
+            be overridden in each individual call to `fit_epoch`.
+        - `nesterov`: If `True`, Nesterov's momentum (NAG) is used instead
+            of classical momentum (CM).
+        """
+        super(StreaMiniMomentum, self).__init__(batchsize, model, cost, *args, **kwargs)
+
+        self.sh_learningrate = _T.scalar('lrate')
+        self.sh_momentum = _T.scalar('momentum')
+
+        # For momentum, we need a "mirror" of each parameter, which keeps track
+        # of the "velocity" of that parameter during training.
+        self.sh_v = [
+            _th.shared(_np.zeros_like(p.get_value()), broadcastable=p.broadcastable, name='v_'+p.name)
+            for p in model.params
+        ]
+
+        g = _T.grad(cost=self.cost_expr, wrt=self.model.params)
+
+        updates = []
+        for sh_p, gp, sh_v in zip(model.params, g, self.sh_v):
+            v = self.sh_momentum * sh_v - self.sh_learningrate * gp
+            updates.append((sh_v, v))
+
+            if not nesterov:
+                updates.append((sh_p, sh_p + v))
+            else:
+                updates.append((sh_p, sh_p + self.sh_momentum * v - self.sh_learningrate * gp))
+
+        self.fn_train = _th.function(
+            inputs=[self.X, self.t, self.sh_learningrate,
+                _th.Param(self.sh_momentum, momentum)],
+            outputs=self.outs,
+            updates=updates,
+            name="StreaMiniMomentum train"
         )
