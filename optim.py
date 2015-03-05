@@ -213,3 +213,61 @@ class StreaMiniMomentum(StreaMiniOptimizer):
             updates=updates,
             name="StreaMiniMomentum train"
         )
+
+
+class StreaMiniAdaGrad(StreaMiniOptimizer):
+    """
+    Implements Duchi's "Adaptive Subgradient" method, aka AdaGrad.
+    Chris Dyer's "Notes on AdaGrad" are pretty awesome for practical purposes.
+
+    TL;DR: AdaGrad doesn't need additional parameters (a lie) and makes the
+           optimization much less sensitive to the learning-rate!
+
+    The updates are:
+
+        g²_{e+1} = g²_e + ∇(p_e)²
+        p_{e+1} = p_e - (lr / √g²_{e+1}) * ∇p_e
+
+    that is, divide the learning-rate by a running square of the gradients.
+
+    Note that this would lead to division by 0 in the beginning for those
+    weights which don't receive a gradient (might be many with ReLUs), so we
+    initialize g² with a small value.
+
+    Additional parameters added to `fit_epoch`:
+
+    - `lrate`: The learning-rate.
+    """
+
+    def __init__(self, batchsize, model, cost, eps=1e-5, *args, **kwargs):
+        super(StreaMiniAdaGrad, self).__init__(batchsize, model, cost, *args, **kwargs)
+
+        self.sh_learningrate = _T.scalar('lrate')
+
+        # Adagrad needs to accumulate the square gradient of each parameter.
+        # I wonder if this won't explode at some point? Probably should fully
+        # read the original paper!
+        # Edit: RMSProp fixes exactly that.
+        # Edit: Matt Zeiler seems to agree cf. AdaDelta.
+        self.sh_g2 = [
+            _th.shared(_np.full_like(p.get_value(), eps), broadcastable=p.broadcastable, name='g2_'+p.name)
+            for p in model.params
+        ]
+
+        g = _T.grad(cost=self.cost_expr, wrt=self.model.params)
+
+        updates = []
+        for sh_p, gp, sh_g2 in zip(self.model.params, g, self.sh_g2):
+            g2 = sh_g2 + gp*gp
+            updates.append((sh_g2, g2))
+            updates.append((sh_p, sh_p - self.sh_learningrate/_T.sqrt(g2) * gp))
+            # Instead of adding eps inside the square-root like most
+            # implementations do, I just initialize `g2` to eps, that should
+            # have the same effect, but cheaper.
+
+        self.fn_train = _th.function(
+            inputs=[self.X, self.t, self.sh_learningrate],
+            outputs=self.outs,
+            updates=updates,
+            name="StreaMiniAdaGrad train"
+        )
