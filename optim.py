@@ -271,3 +271,54 @@ class StreaMiniAdaGrad(StreaMiniOptimizer):
             updates=updates,
             name="StreaMiniAdaGrad train"
         )
+
+
+class StreaMiniRMSProp(StreaMiniOptimizer):
+    """
+    Implements Hinton's "RMSProp" method presented in his Coursera lecture 6.5.
+    Essentially, it sits right in-between AdaGrad and AdaDelta by being a
+    windowed version of AdaGrad.
+
+    The updates are:
+
+        g²_{e+1} = rho * g²_e + (1-rho) * ∇(p_e)²
+        p_{e+1} = p_e - (lr / √g²_{e+1}) * ∇p_e
+
+    Note that in this case just initializing with epsilon is not enough anymore
+    as we could get zero-gradient for some units long enough as to completely
+    dominate the window.
+
+    Additional parameters added to `fit_epoch`:
+
+    - `lrate`: The learning-rate.
+    - `rho`: The momentum for square-gradient accumulation, defaulting to the
+        one passed at construction.
+    """
+
+    def __init__(self, batchsize, model, cost, rho=0.95, eps=1e-5, *args, **kwargs):
+        super(StreaMiniRMSProp, self).__init__(batchsize, model, cost, *args, **kwargs)
+
+        self.sh_learningrate = _T.scalar('lrate')
+        self.sh_rho = _T.scalar('rho')
+
+        # This too needs to accumulate the square gradient of each parameter.
+        self.sh_g2 = [
+            _th.shared(_np.zeros_like(p.get_value()), broadcastable=p.broadcastable, name='g2_'+p.name)
+            for p in model.params
+        ]
+
+        g = _T.grad(cost=self.cost_expr, wrt=self.model.params)
+
+        updates = []
+        for sh_p, gp, sh_g2 in zip(self.model.params, g, self.sh_g2):
+            g2 = self.sh_rho*sh_g2 + (1-self.sh_rho)*gp*gp
+            updates.append((sh_g2, g2))
+            updates.append((sh_p, sh_p - self.sh_learningrate/_T.sqrt(eps+g2) * gp))
+
+        self.fn_train = _th.function(
+            inputs=[self.X, self.t, self.sh_learningrate,
+                _th.Param(self.sh_rho, rho)],
+            outputs=self.outs,
+            updates=updates,
+            name="StreaMiniRMSProp train"
+        )
