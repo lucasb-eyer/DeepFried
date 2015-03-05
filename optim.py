@@ -115,7 +115,7 @@ class StreaMiniSGD(StreaMiniOptimizer):
     Vanilla Stochastic Gradient Descent on minibatches. The training is quite
     simple:
 
-        p_{e+1} = p_e - lr * grad(p_e)
+        p_{e+1} = p_e - lr * ∇p_e
 
     Additional parameters added to `fit_epoch`:
 
@@ -157,12 +157,12 @@ class StreaMiniMomentum(StreaMiniOptimizer):
 
     for easier implementation in Theano. The updates are:
 
-        v_{e+1} = mom * v_e - lr * grad(p_e)
+        v_{e+1} = mom * v_e - lr * ∇p_e
         p_{e+1} = p_e + v_{e+1}
 
     for CM, and
 
-        p_{e+1} = p_e + mom * v_{e+1} - lr * grad(p_e)
+        p_{e+1} = p_e + mom * v_{e+1} - lr * ∇p_e
 
     for Nicolas' reformulated NAG.
 
@@ -197,7 +197,7 @@ class StreaMiniMomentum(StreaMiniOptimizer):
         g = _T.grad(cost=self.cost_expr, wrt=self.model.params)
 
         updates = []
-        for sh_p, gp, sh_v in zip(model.params, g, self.sh_v):
+        for sh_p, gp, sh_v in zip(self.model.params, g, self.sh_v):
             v = self.sh_momentum * sh_v - self.sh_learningrate * gp
             updates.append((sh_v, v))
 
