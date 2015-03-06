@@ -335,3 +335,78 @@ class StreaMiniRMSProp(StreaMiniOptimizer):
             updates=updates,
             name="StreaMiniRMSProp train"
         )
+
+
+class StreaMiniAdaDelta(StreaMiniOptimizer):
+    """
+    Implements Matt Zeiler's "Adaptive Learningrate" method, aka. AdaDelta.
+    The paper itself is really neat, and both very convincing and practical.
+
+    TL;DR: 1. AdaGrad quickly anneals, AdaDelta doesn't. (No proof.)
+           2. AdaGrad *is* sensitive to learning-rate, AdaGrad not so much. (Table 1.)
+           3. AdaGrad includes 2nd-order approximation. (3.2)
+
+    The updates are:
+
+        g²_{e+1} = ρ * g²_e + (1-ρ) * ∇p_e²
+        up_{e+1} = √(d²_e / g²_{e+1}) * ∇p_e
+        d²_{e+1} = ρ * d²_e + (1-ρ) * up²
+        p_{e+1} = p_e - up_{e+1}
+
+    As in RMSProp, we need to add epsilons in order to create stability.
+
+    It turns out that the effective learning-rate will converge to 1 as the
+    gradients decrease (and thus learning grinds to a halt). This could be used
+    to check for convergence by a specialized trainer.
+    """
+
+    def __init__(self, batchsize, model, cost, rho=0.95, eps=1e-5, *args, **kwargs):
+        """
+        See `StreaMiniOptimizer` for details on the arguments.
+
+        - `rho`: The "momentum decay" of AdaDelta. The paper tests three values
+            on MNIST: 0.9, 0.95 and 0.99, they don't change the score much.
+            The paper also uses the same values for a speech task.
+        - `eps`: A regularization term only used to avoid singularities. The
+            paper tests four values on MNIST: 1e-2, 1e-4, 1e-6, 1e-8;
+            all of them work pretty well.
+        """
+        super(StreaMiniAdaDelta, self).__init__(batchsize, model, cost, *args, **kwargs)
+
+        self.sh_rho = _T.scalar('rho')
+
+        # Similarly to Adagrad, AdaDelta accumulates the square gradient of
+        # each parameter, it just exponentially decays the old value,
+        # effectively only summing over a recent window.
+        self.sh_g2 = [
+            _th.shared(_np.zeros_like(p.get_value()), broadcastable=p.broadcastable, name='g2_'+p.name)
+            for p in model.params
+        ]
+
+        # Similarly to momentum, AdaDelta accumulates previous update values.
+        # This also happens in a decaying fashion, so as to cover a window.
+        self.sh_delta2 = [
+            _th.shared(_np.zeros_like(p.get_value()), broadcastable=p.broadcastable, name='d2_'+p.name)
+            for p in model.params
+        ]
+
+        g = _T.grad(cost=self.cost_expr, wrt=self.model.params)
+
+        updates = []
+        for sh_p, gp, sh_g2, sh_d2 in zip(self.model.params, g, self.sh_g2, self.sh_delta2):
+            g2 = self.sh_rho*sh_g2 + (1-self.sh_rho)*gp*gp
+            up = _T.sqrt((sh_d2+eps) / (g2+eps)) * gp
+            d2 = self.sh_rho*sh_d2 + (1-self.sh_rho)*up*up
+            updates.append((sh_g2, g2))
+            updates.append((sh_p, sh_p - up))
+            updates.append((sh_d2, d2))
+
+        # Notice how we never used the learning-rate!
+        # We thus need to tell Theano that we're aware of the fact
+        # that we're not using it.
+        self.fn_train = _th.function(
+            inputs=[self.X, self.t, _th.Param(self.sh_rho, rho)],
+            outputs=self.outs,
+            updates=updates,
+            name="StreaMiniAdaDelta train"
+        )
