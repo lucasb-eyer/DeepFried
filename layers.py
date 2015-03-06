@@ -5,6 +5,7 @@ import theano as _th
 import theano.tensor as _T
 
 from DeepFried.util import tuplize as _tuplize
+from DeepFried.util import check_random_state as _check_random_state
 
 
 class Layer(object):
@@ -16,6 +17,29 @@ class Layer(object):
 
     Note that only the second point is actually a valid one; introducing a
     hierarchy of classes for the first one would be unpythonic.
+
+    Additional methods that *may* be implemented by some layers and (TODO)
+    probably should be formalized and documented somewhere else:
+
+    - `weightinitializer(self)`:
+        Returns a function which can be used to initialize weights of a
+        preceding layer. Which function is returned depends on the value of
+        the `init` flag passed in the constructor.
+
+        The returned function's signature is:
+
+        def init(shape, rng, fan_in, fan_out)
+
+        It returns a numpy array with initial values for the weights.
+
+        - `shape`: The shape of the initial weights to return.
+        - `rng`: The random number generator to be used.
+        - `fan_in`: The fan-in of the weights, used in some initializations.
+        - `fan_out`: The fan-out of the weights, used in some initializations.
+
+    - `biasinitializer(self)`:
+        See the documentation of `weightsinitializer`, the difference is that
+        biases typically use a different (simper) initialization method.
     """
 
 
@@ -25,6 +49,9 @@ class Layer(object):
         self.Ws = []
         self.bs = []
         self.params = []
+
+        # This contains the initializers to be used for each parameter.
+        self.inits = {}
 
 
     def train_expr(self, X):
@@ -49,9 +76,10 @@ class Layer(object):
         - `empty`: function which should return a new value for the variable,
                    will only be called if `val` is None.
         """
-        p = self._newparam(*args, **kwargs)
+        p, i = self._newparam(*args, **kwargs)
         self.Ws.append(p)
         self.params.append(p)
+        self.inits[p] = i
         return p
 
 
@@ -67,26 +95,49 @@ class Layer(object):
         - `empty`: function which should return a new value for the variable,
                    will only be called if `val` is None.
         """
-        p = self._newparam(*args, **kwargs)
+        p, i = self._newparam(*args, **kwargs)
         self.bs.append(p)
         self.params.append(p)
+        self.inits[p] = i
         return p
 
 
-    def _newparam(self, name, shape, val=None, empty=None):
+    def _newparam(self, name, shape, val=None, init=None):
         name = "{}{}".format(name, 'x'.join(map(str, shape)))
 
         if val is None:
-            if empty is None:
-                val = _np.full(shape, _np.nan, dtype=_th.config.floatX)
-            else:
-                val = empty(shape, dtype=_th.config.floatX)
-        if isinstance(val, _np.ndarray):
-            val = _th.shared(val.astype(_th.config.floatX).reshape(shape), name=name)
+            if init is None:
+                init = lambda shape, *a, **kw: _np.full(shape, _np.nan, dtype=_th.config.floatX)
+        elif isinstance(val, _np.ndarray):
+            init = lambda *a, **kw: val
+        elif isinstance(val, _T.TensorVariable):
+            # When using an existing theano shared variable, don't store nay
+            # initializer as "the origina" probably already has one.
+            return val, None
         else:
             raise ValueError("Couldn't understand parameters for parameter creation.")
 
-        return val
+        return _th.shared(init(shape).astype(_th.config.floatX), name=name), init
+
+
+    def reinit(self, rng):
+        """
+        Sets the value of each parameter to that returned by a call to the
+        initializer which has been registered for it.
+
+        If a parameter has a `_df_init_kw` attribute, it is supposed to be a
+        dict and will be passed as additional keyword arguments to the
+        initializer.
+        """
+        rng = _check_random_state(rng)
+
+        for p in self.params:
+            if p not in self.inits:
+                raise RuntimeError("Want to reinit layer parameter '{}' but no initializer registered for it.".format(p.name))
+            kw = {}
+            if hasattr(p, "_df_init_kw"):
+                kw = p._df_init_kw
+            p.set_value(self.inits[p](p.get_value().shape, rng, **kw).astype(p.dtype))
 
 
 class FullyConnected(Layer):
@@ -119,15 +170,16 @@ class FullyConnected(Layer):
         self.inshape = _tuplize(inshape)
         self.outshape = _tuplize(outshape)
 
-        self.fan_in = _np.prod(self.inshape)
-        self.fan_out = _np.prod(self.outshape)
+        fan_in = _np.prod(self.inshape)
+        fan_out = _np.prod(self.outshape)
 
-        self.W_shape = (self.fan_in, self.fan_out)
+        self.W_shape = (fan_in, fan_out)
         self.W = self.newweight("W_fc", self.W_shape, W)
+        self.W._df_init_kw = dict(fan_in=fan_in, fan_out=fan_out)
 
         if bias:
-            self.b_shape = (self.fan_out,)
-            self.b = self.newbias("b_fc", self.b_shape, b, _np.zeros)
+            self.b_shape = (fan_out,)
+            self.b = self.newbias("b_fc", self.b_shape, b)
 
 
     def train_expr(self, X):
@@ -204,48 +256,30 @@ class ReLU(Layer):
 
 
     def weightinitializer(self):
-        """
-        Returns a function which can be used to initialize weights of a
-        preceding layer. Which function is returned depends on the value of
-        the `init` flag passed in the constructor.
-
-        The returned function's signature is:
-
-        def init(rng, shape, fan_in, fan_out)
-
-        It returns a numpy array with initial values for the weights.
-
-        - `rng`: The random number generator to be used.
-        - `shape`: The shape of the initial weights to return.
-        - `fan_in`: The fan-in of the weights, used in some initializations.
-        - `fan_out`: The fan-out of the weights, used in some initializations.
-        """
+        """ See the documentation of `Layer`. """
         if self.init == 'Xavier':
-            def init(rng, shape, fan_in, fan_out):
+            def init(shape, rng, fan_in, fan_out):
                 fan_mean = (fan_in+fan_out)/2
                 return rng.uniform(-_np.sqrt(6/fan_mean), _np.sqrt(6/fan_mean), shape)
             return init
         elif self.init == 'XavierN':
-            def init(rng, shape, fan_in, fan_out):
+            def init(shape, rng, fan_in, fan_out):
                 fan_mean = (fan_in+fan_out)/2
                 return _np.sqrt(1/fan_mean)*rng.standard_normal(shape)
             return init
         elif self.init == 'PReLU':
-            def init(rng, shape, fan_in, fan_out):
+            def init(shape, rng, fan_in, fan_out):
                 fan_mean = (fan_in+fan_out)/2
                 return _np.sqrt(2/fan_mean)*rng.standard_normal(shape)
             return init
         else:
-            def init(rng, shape, fan_in, fan_out):
+            def init(shape, rng, *a, **kw):
                 return self.init*rng.standard_normal(shape)
             return init
 
 
     def biasinitializer(self):
-        """
-        See the documentation of `weightsinitializer`, the difference is that
-        biases typically use a different (simper) initialization method.
-        """
-        def init(rng, shape, fan_in, fan_out):
+        """ See the documentation of `Layer`. """
+        def init(shape, *a, **kw):
             return _np.zeros(shape)
         return init

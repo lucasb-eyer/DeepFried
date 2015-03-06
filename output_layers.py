@@ -32,14 +32,14 @@ class Softmax(Layer):
 
     def weightinitializer(self):
         """ See the documentation of `Layer`. """
-        def init(rng, shape, fan_in, fan_out):
+        def init(shape, rng, *a, **kw):
             return _np.zeros(shape)
         return init
 
 
     def biasinitializer(self):
         """ See the documentation of `Layer`. """
-        def init(rng, shape, fan_in, fan_out):
+        def init(shape, rng, *a, **kw):
             return _np.zeros(shape)
         return init
 
