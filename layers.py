@@ -50,6 +50,13 @@ class Layer(object):
         self.bs = []
         self.params = []
 
+        # For layers which are composed of multiple sub-layers, this is a list
+        # of all output layers. For most non-composed layers, this list just
+        # contains `self`.
+        # This is used for the predictors to know which ensembling and
+        # aggregating functions to use for the outputs.
+        self.out_layers = [self]
+
         # This contains the initializers to be used for each parameter.
         self.inits = {}
 
@@ -58,10 +65,37 @@ class Layer(object):
         raise NotImplementedError("You need to implement `train_expr`!")
 
 
-    def pred_expr(self, *args, **kwargs):
-        # Most layers act exactly the same for training and for testing; this
-        # way they'll only need to build their expression once.
-        return self.train_expr(*args, **kwargs)
+    def pred_expr(self, X, *args, **kwargs):
+        """
+        Returns a symbolic Theano expression which represents this layer's
+        output during prediction given `X` as input.
+
+        This defaults to calling `train_expr`, which is good enough for all
+        layers which don't change between training and prediction.
+        """
+        return self.train_expr(X, *args, **kwargs)
+
+
+    def pred_exprs(self, *args, **kwargs):
+        """
+        Returns a list of symbolic Theano expressions to be computed jointly
+        during prediction. For most layers, this will just be a list with the
+        return value of `pred_expr` as only element, which this defaults to.
+        """
+        return [self.pred_expr(*args, **kwargs)]
+
+
+    def make_input(self, name="X"):
+        """
+        Returns a Theano tensor variable with given `name` of the dimension
+        which this layer takes as input.
+
+        **NOTE** that this needs to include a leading dimension for the
+        minibatch.
+
+        Defaults to returning a matrix, i.e. each datapoint is a vector.
+        """
+        return _T.matrix(name)
 
 
     def newweight(self, *args, **kwargs):
@@ -180,6 +214,10 @@ class FullyConnected(Layer):
         if bias:
             self.b_shape = (fan_out,)
             self.b = self.newbias("b_fc", self.b_shape, b)
+
+
+    def make_input(self, name="X"):
+        return _T.TensorType(_th.config.floatX, (False,)*(1+len(self.inshape)))(name)
 
 
     def train_expr(self, X):
