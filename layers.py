@@ -125,8 +125,7 @@ class FullyConnected(Layer):
         self.W_shape = (self.fan_in, self.fan_out)
         self.W = self.newweight("W_fc", self.W_shape, W)
 
-        self.bias = bias
-        if self.bias:
+        if bias:
             self.b_shape = (self.fan_out,)
             self.b = self.newbias("b_fc", self.b_shape, b, _np.zeros)
 
@@ -145,7 +144,7 @@ class FullyConnected(Layer):
 
         out = _T.dot(X, self.W)
 
-        if self.bias:
+        if hasattr(self, "b"):
             out += self.b
 
         # And for non-1D outputs, add a reshaping step for convenience.
