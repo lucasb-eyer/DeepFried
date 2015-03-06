@@ -240,6 +240,12 @@ class StreaMiniAdaGrad(StreaMiniOptimizer):
     """
 
     def __init__(self, batchsize, model, cost, eps=1e-5, *args, **kwargs):
+        """
+        See `StreaMiniOptimizer` for details on the arguments.
+
+        - `eps`: A regularization-factor, should be smaller than the
+            square of the weight gradients.
+        """
         super(StreaMiniAdaGrad, self).__init__(batchsize, model, cost, *args, **kwargs)
 
         self.sh_learningrate = _T.scalar('lrate')
@@ -281,7 +287,7 @@ class StreaMiniRMSProp(StreaMiniOptimizer):
 
     The updates are:
 
-        g²_{e+1} = rho * g²_e + (1-rho) * ∇(p_e)²
+        g²_{e+1} = ρ * g²_e + (1-ρ) * ∇p_e²
         p_{e+1} = p_e - (lr / √g²_{e+1}) * ∇p_e
 
     Note that in this case just initializing with epsilon is not enough anymore
@@ -296,6 +302,13 @@ class StreaMiniRMSProp(StreaMiniOptimizer):
     """
 
     def __init__(self, batchsize, model, cost, rho=0.95, eps=1e-5, *args, **kwargs):
+        """
+        See `StreaMiniOptimizer` for details on the arguments.
+
+        - `rho`: The "momentum" to use for averaging past gradients.
+        - `eps`: A regularization-factor, should be smaller than the
+            square of the weight gradients.
+        """
         super(StreaMiniRMSProp, self).__init__(batchsize, model, cost, *args, **kwargs)
 
         self.sh_learningrate = _T.scalar('lrate')
