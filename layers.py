@@ -62,6 +62,10 @@ class Layer(object):
 
 
     def train_expr(self, X):
+        """
+        Returns an expression computing the output at training-time given a
+        symbolic input `X`.
+        """
         raise NotImplementedError("You need to implement `train_expr`!")
 
 
@@ -221,10 +225,6 @@ class FullyConnected(Layer):
 
 
     def train_expr(self, X):
-        """
-        Returns an expression computing the output at training-time given a
-        symbolic input `X`.
-        """
         batchsize = X.shape[0]
 
         # For non-1D inputs, add a flattening step for convenience.
@@ -283,10 +283,6 @@ class ReLU(Layer):
 
 
     def train_expr(self, X):
-        """
-        Returns an expression computing the output at training-time given a
-        symbolic input `X`.
-        """
         if self.cap is None:
             return _T.maximum(self.leak*X, X)
         else:
