@@ -24,18 +24,18 @@ class CategoricalCrossEntropy(object):
                          1.0 if hiclip is None else hiclip)
 
 
-    def cost_expr(self, p_y_given_x, y):
+    def output_cost_expr(self, p_t_given_x, t):
         """
         Creates an expression computing the mean of the negative log-likelihoods
-        of the predictions `p_y_given_x` wrt. the data `y`:
+        of the predictions `p_t_given_x` wrt. the targets `t`:
 
-            -log p(y|x,params)
+            -log p(t|x,params)
 
-        - `p_y_given_x`: A 2d-tensor whose first dimension is the samples and
+        - `p_t_given_x`: A 2d-tensor whose first dimension is the samples and
                          second dimension is the class probabilities of that
                          sample.
-        - `y`: A one-hot encoded vector of labels whose length should be that
-               of `p_y_given_x`'s first dimension.
+        - `t`: A one-hot encoded vector of labels whose length should be that
+               of `p_t_given_x`'s first dimension.
 
         TODO: For now this doesn't actually make use of the clipping since
               that'd potentially break Theano's optimization of merging this
@@ -44,20 +44,20 @@ class CategoricalCrossEntropy(object):
               the clipping here too.
         """
         # TODO: Wait for https://github.com/Theano/Theano/issues/2464
-        return -_T.mean(_T.log(p_y_given_x[_T.arange(y.shape[0]), y]))
+        return -_T.mean(_T.log(p_t_given_x[_T.arange(t.shape[0]), t]))
 
 
-    def cost(self, p_y_given_x, y):
+    def cost(self, p_t_given_x, t):
         """
         Computes the cost immediately on numpy arrays instead of building an
         expression.
 
         This is currently necessary by design for augmented prediction.
         """
-        py = p_y_given_x[_np.arange(y.shape[0]), y]
+        pt = p_t_given_x[_np.arange(t.shape[0]), t]
         if self.clip is not None:
-            py = _np.clip(py, *self.clip)
-        return -_np.mean(_np.log(py))
+            pt = _np.clip(pt, *self.clip)
+        return -_np.mean(_np.log(pt))
 
 
     def aggregate_batches(self, batchcosts):
