@@ -111,3 +111,96 @@ class Sequence(Layer):
         Uses the batch aggregator of the last (i.e. output) layer of the stack.
         """
         return self.layers[-1].batch_agg()
+
+
+class Parallel(Layer):
+
+    def __init__(self, *layers):
+        """
+        Constructs a layer composed of all passed `layers` using this layer's
+        input (i.e. all the same input) but each having their own output.
+
+        This is what you could use, for a multi-output at the top of a network,
+        for instance.
+
+        **NOTE** that this doesn't do any initialization wiring!
+        """
+        super(Parallel, self).__init__()
+
+        self.layers = []
+
+        # These collect all contained layers' params
+        self.Ws = []
+        self.bs = []
+        self.params = []
+
+        for l in layers:
+            self.append(l)
+
+
+    def append(self, layer):
+        """
+        Appends a `layer` onto the stack, giving it the same input as all other
+        layers get and adding its output to this layer's outputs.
+        """
+        self.layers.append(layer)
+        self.Ws += layer.Ws
+        self.bs += layer.bs
+        self.params += layer.params
+
+
+    def make_inputs(self, *names):
+        """
+        Since all contained layers will use the exact same input, this uses the
+        first contained layer to create inputs, though it does check whether
+        they'd all create similar inputs.
+        """
+        ins = tuplize(self.layers[0].make_inputs(*names))
+
+        # A crude way of making sure all layers take the same input.
+        for l in self.layers[1:]:
+            lins = tuplize(l.make_inputs(*names))
+            assert len(ins) == len(lins), "All parallel layers must require the same number of inputs!\n{} requires {}, but {} requires {}".format(self.out_layers[0], len(ins), l, len(lins))
+            assert all(a.ndim == b.ndim for a, b in zip(ins, lins)), "All parallel layers inputs must have the same dimension!\nConflict between {} and {}".format(self.out_layers[0], l)
+
+        return ins
+
+
+    def train_expr(self, X):
+        """
+        Returns the training expressions of all contained layers, since each
+        contained layer contributes to an output.
+        """
+        return collect(l.train_expr(X) for l in self.layers)
+
+
+    def pred_expr(self, X):
+        """
+        Returns the prediction expressions of all contained layers, since each
+        contained layer contributes to an output.
+        """
+        return collect(l.pred_expr(X) for l in self.layers)
+
+
+    def reinit(self, rng):
+        """
+        Reinitializes all contained layers with the given `rng`.
+        """
+        for l in self.layers:
+            l.reinit(rng)
+
+
+    def ensembler(self):
+        """
+        Returns the ensemblers of all contained layers, since each contained
+        layer contributes to an output.
+        """
+        return collect(l.ensembler() for l in self.layers)
+
+
+    def batch_agg(self):
+        """
+        Returns the batch aggregators of all contained layers, since each
+        contained layer contributes to an output.
+        """
+        return collect(l.batch_agg() for l in self.layers)
