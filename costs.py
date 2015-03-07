@@ -24,7 +24,7 @@ class CategoricalCrossEntropy(object):
                          1.0 if hiclip is None else hiclip)
 
 
-    def output_cost_expr(self, p_t_given_x, t):
+    def cost_expr(self, model, p_t_given_x, t):
         """
         Creates an expression computing the mean of the negative log-likelihoods
         of the predictions `p_t_given_x` wrt. the targets `t`:
@@ -43,6 +43,8 @@ class CategoricalCrossEntropy(object):
               If I'll ever run into the issue of getting nans here, I'll add
               the clipping here too.
         """
+        p_t_given_x = p_t_given_x[0]
+        t = t[0]
         # TODO: Wait for https://github.com/Theano/Theano/issues/2464
         return -_T.mean(_T.log(p_t_given_x[_T.arange(t.shape[0]), t]))
 

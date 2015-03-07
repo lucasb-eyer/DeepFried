@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from DeepFried.layers import Layer
+from DeepFried.util import collect, tuplize
 
 
 class Sequence(Layer):
@@ -39,8 +40,6 @@ class Sequence(Layer):
         - `init_previous`: how many preceding weight layers this one inits.
         - `initializes`: a `Layer` or list of `Layer`s which this one inits.
         """
-        # Always use the last layer in the sequence as output layer.
-        self.out_layers = [layer]
 
         self.layers.append(layer)
         self.Ws += layer.Ws
@@ -48,7 +47,6 @@ class Sequence(Layer):
         self.params += layer.params
 
         def registerinit(l):
-            print("{} initializes {}".format(layer, l))
             for W in l.Ws:
                 l.inits[W] = layer.weightinitializer()
             for b in l.bs:
@@ -70,20 +68,27 @@ class Sequence(Layer):
                 registerinit(self.layers[-i])
 
 
-    def make_input(self, *a, **kw):
-        return self.layers[0].make_input(*a, **kw)
+    def make_inputs(self, *names):
+        return self.layers[0].make_inputs(*names)
 
 
-    def train_expr(self, X, *a, **kw):
+    def train_expr(self, *Xs):
+        """
+        Concatenates the training expression of all layers one to another
+        and returns the training expression(s) of the last layer.
+        """
         for l in self.layers:
-            X = l.train_expr(X, *a, **kw)
-        return X
+            Xs = l.train_expr(*tuplize(Xs))
+        return Xs
 
 
-    def pred_expr(self, X, *a, **kw):
+    def pred_expr(self, *Xs):
+        """
+        Same as `train_expr` but for prediction expressions.
+        """
         for l in self.layers:
-            X = l.pred_expr(X, *a, **kw)
-        return X
+            Xs = l.pred_expr(*tuplize(Xs))
+        return Xs
 
 
     def reinit(self, rng):
@@ -93,3 +98,16 @@ class Sequence(Layer):
         for l in self.layers:
             l.reinit(rng)
 
+
+    def ensembler(self):
+        """
+        Uses the ensembler of the last (i.e. output) layer of the stack.
+        """
+        return self.layers[-1].ensembler()
+
+
+    def batch_agg(self):
+        """
+        Uses the batch aggregator of the last (i.e. output) layer of the stack.
+        """
+        return self.layers[-1].batch_agg()

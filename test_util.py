@@ -15,9 +15,15 @@ class TestUtilFunctions(unittest.TestCase):
         self.assertEqual(u.tuplize(1), (1,))
         self.assertEqual(u.tuplize((1,)), (1,))
         self.assertEqual(u.tuplize((1,2)), (1,2))
-        self.assertEqual(u.tuplize([1]), ([1],))
+
+        self.assertEqual(u.tuplize([1]), (1,))
+        self.assertEqual(u.tuplize([1], lists=False), ([1],))
+
         self.assertEqual(u.tuplize("a"), ("a",))
         self.assertEqual(u.tuplize("ab"), ("ab",))
+
+        self.assertEqual(u.tuplize(None), None)
+        self.assertEqual(u.tuplize(None, tuplize_none=True), tuple())
 
 
     def test_maybetuple(self):
@@ -27,6 +33,12 @@ class TestUtilFunctions(unittest.TestCase):
         self.assertEqual(u.maybetuple(range(1)), 0)
         with self.assertRaises(TypeError):
             u.maybetuple(3)
+
+
+    def test_collect(self):
+        self.assertEqual(u.collect([0, 1, 2]), (0,1,2))
+        self.assertEqual(u.collect(range(3)), (0,1,2))
+        self.assertEqual(u.collect([None, (0,1), 2, None]), (0,1,2))
 
 
     def test_batched_1d(self):

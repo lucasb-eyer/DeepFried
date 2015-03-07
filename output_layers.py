@@ -44,26 +44,3 @@ class Softmax(Layer):
         return init
 
 
-    # TODO: As soon as we get another probabilistic classifier output, the
-    #       following methods should wander into an abstract superclass.
-
-
-    def ensemble(self, outputs):
-        """
-        Given a list of multiple `outputs` for a single minibatch, this
-        computes the output of ensembling them. This is useful e.g. for
-        ensembling the predictions of multiple augmentations.
-
-        - `outputs`: list of different predictions for one minibatch.
-        """
-        return sum(outputs)/len(outputs)
-
-
-    def aggregate_batches(self, outputs):
-        """
-        Aggregates multiple `outputs` from various minibatches so as to return
-        the whole output for all of the minibatches.
-
-        - `outputs`: list of outputs from the minibatches.
-        """
-        return _np.concatenate(outputs)

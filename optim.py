@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from DeepFried.util import batched
+from DeepFried.util import batched, tuplize
 
 import numpy as _np
 import theano as _th
@@ -18,17 +18,19 @@ class StreaMiniOptimizer(object):
     """
 
 
-    def __init__(self, batchsize, model, cost, extra_outs=None, X=None, t=None):
+    def __init__(self, batchsize, model, cost, extra_outs=None, Xnames=[], tnames=[]):
         """
         Initializes the things that are common amongst all streaming minibatch
         optimizers.
 
         - `batchsize`: The number of samples in a minibatch.
         - `model`: The model. This should be an object with at least:
-            - `make_input(name='')`: a function which returns a symbolic
-                variable of the correct dimensions for serving as input.
-            - `train_expr(X)`: a function which returns the symbolic output
-                of the model, during training, given symbolic model input `X`.
+            - `make_inputs(basename='X')`: a function which returns a list of
+                as many symbolic variables of the correct dimensions as the
+                model takes as inputs. That's usually just one.
+            - `train_exprs(*Xs)`: a function which returns the symbolic
+                output(s) of the model, during training, given symbolic model
+                input(s) `X`.
             - `params`: an iterable containing all trainable parameters.
         - `cost`: The cost. This should be an object with at least:
             - `make_target(name='')`: a function which returns a symbolic
@@ -38,45 +40,31 @@ class StreaMiniOptimizer(object):
             - `aggregate_batches(costs)`: a function which returns the
                 aggregation of the `costs` of each minibatch.
         - `extra_outs`: TODO
-        - `X`: A symbolic variable to be used as input to the model. If `None`,
-            a new one will be created.
-        - `t`: A symbolic variable to be used as targets for the cost. If
-            `None`, a new one will be created.
+        - `Xnames`: Optional list of names to use for input variables. Note
+            that this must be exactly as many names as the model has inputs,
+            then these names may be used as keyword arguments to `fit_epoch`.
+        - `tnames`: The same as `Xnames`, but for target variables.
         """
         self.model = model
         self.cost = cost
         self.batchsize = batchsize
 
-        if extra_outs is not None:
-            self.outs = extra_outs
-        else:
-            self.outs = []
+        self.Xs = tuplize(self.model.make_inputs(*Xnames))
+        self.targets = tuplize(self.cost.make_target(*tnames))
 
-        if X is None:
-            self.X = self.model.make_input()
-        elif isinstance(X, str):
-            self.X = self.model.make_input(X)
-        else:
-            self.X = X
-
-        if t is None:
-            self.t = self.cost.make_target()
-        elif isinstance(t, str):
-            self.t = self.cost.make_target(t)
-        else:
-            self.t = t
-
-        self.cost_expr = self.cost.cost_expr(self.model.train_expr(self.X), self.t)
-        self.outs = [self.cost_expr] + self.outs
+        train_expr = tuplize(self.model.train_expr(*self.Xs))
+        self.cost_expr = self.cost.cost_expr(self.model, train_expr, self.targets)
+        self.outs = (self.cost_expr,) + tuplize(extra_outs, tuplize_none=True)
 
 
-    def fit_epoch(self, X, t, aug=None, batchsize=None, *args, **kwargs):
+    def fit_epoch(self, X, t, aug=None, batchsize=None, **kwargs):
         """
         Trains the model for one full epoch by iterating through minibatches.
 
-        - `X`: A numpy array containing the data. The first dimension should be
-               the datapoints, i.e. X.shape[0] == ndata, and any remaining
-               dimensions should fit the model's expected input shape.
+        - `X`: A numpy array or a list of numpy arrays containing the model input(s).
+            The first dimension of an input should be the datapoints,
+            i.e. X.shape[0] == ndata,
+            and any remaining dimensions should fit the model's expected input shape(s).
         - `t`: The target values where the first dimension should be the
                datapoints, just like for `X`.
         - `aug`: An optional data augmentation pipeline that can transform each
@@ -89,20 +77,31 @@ class StreaMiniOptimizer(object):
         costs = []
         rests = []
 
+        # Sanitize inputs for more flexibility.
+        Xs = tuplize(X)
+        ts = tuplize(t)
         bs = batchsize or self.batchsize
+
+        assert all(X.shape[0] == Xs[0].shape[0] for X in Xs), "All inputs to fit_epoch should contain the same amount of datapoints."
+        assert all(t.shape[0] == ts[0].shape[0] for t in ts), "All targets to fit_epoch should contain the same amount of datapoints."
 
         # Go through the training in minibatches. Note that the last batch
         # may be smaller than the batchsize.
-        for bx, bt in batched(bs, X, t):
+        for bxs, bts in zip(batched(bs, *Xs), batched(bs, *ts)):
+            # Possibly need to re-tuplize them because `batched` tries to be
+            # smart and not return a tuple if batching a single array.
+            bxs = tuplize(bxs)
+            bts = tuplize(bts)
+
             # Potentially generate a new augmentation on-the-fly.
-            if aug:
-                bx = aug.augbatch_train(bx, bt)
+            if aug is not None:
+                bxs = tuplize(aug.augbatch_train(*bxs+bts))
 
             # Uploads to the GPU, does the forward pass,
             # the backward pass *and* the weight updates!
-            cost, *rest = self.fn_train(bx, bt, *args, **kwargs)
+            cost, *rest = self.fn_train(*bxs+bts, **kwargs)
 
-            # Collect stats over the batches, so we can average.
+            # Collect stats over the batches, so we can aggregate.
             costs.append(cost)
             rests.append(rest)
 
@@ -134,7 +133,7 @@ class StreaMiniSGD(StreaMiniOptimizer):
         # p_e+1 = p_e - lr * grad(p_e)
         g = _T.grad(cost=self.cost_expr, wrt=self.model.params)
         self.fn_train = _th.function(
-            inputs=[self.X, self.t, self.sh_learningrate],
+            inputs=self.Xs + self.targets + (self.sh_learningrate,),
             outputs=self.outs,
             updates=[(p, p - self.sh_learningrate * gp) for p, gp in zip(self.model.params, g)],
             name="StreaMiniSGD train"
@@ -207,8 +206,7 @@ class StreaMiniMomentum(StreaMiniOptimizer):
                 updates.append((sh_p, sh_p + self.sh_momentum * v - self.sh_learningrate * gp))
 
         self.fn_train = _th.function(
-            inputs=[self.X, self.t, self.sh_learningrate,
-                _th.Param(self.sh_momentum, momentum)],
+            inputs=self.Xs + self.targets + (self.sh_learningrate, _th.Param(self.sh_momentum, momentum)),
             outputs=self.outs,
             updates=updates,
             name="StreaMiniMomentum train"
@@ -272,7 +270,7 @@ class StreaMiniAdaGrad(StreaMiniOptimizer):
             # have the same effect, but cheaper.
 
         self.fn_train = _th.function(
-            inputs=[self.X, self.t, self.sh_learningrate],
+            inputs=self.Xs + self.targets + (self.sh_learningrate,),
             outputs=self.outs,
             updates=updates,
             name="StreaMiniAdaGrad train"
@@ -329,8 +327,7 @@ class StreaMiniRMSProp(StreaMiniOptimizer):
             updates.append((sh_p, sh_p - self.sh_learningrate/_T.sqrt(eps+g2) * gp))
 
         self.fn_train = _th.function(
-            inputs=[self.X, self.t, self.sh_learningrate,
-                _th.Param(self.sh_rho, rho)],
+            inputs=self.Xs + self.targets + (self.sh_learningrate, _th.Param(self.sh_rho, rho)),
             outputs=self.outs,
             updates=updates,
             name="StreaMiniRMSProp train"
@@ -405,7 +402,7 @@ class StreaMiniAdaDelta(StreaMiniOptimizer):
         # We thus need to tell Theano that we're aware of the fact
         # that we're not using it.
         self.fn_train = _th.function(
-            inputs=[self.X, self.t, _th.Param(self.sh_rho, rho)],
+            inputs=self.Xs + self.targets + (_th.Param(self.sh_rho, rho),),
             outputs=self.outs,
             updates=updates,
             name="StreaMiniAdaDelta train"

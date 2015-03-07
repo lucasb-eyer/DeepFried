@@ -50,54 +50,38 @@ class Layer(object):
         self.bs = []
         self.params = []
 
-        # For layers which are composed of multiple sub-layers, this is a list
-        # of all output layers. For most non-composed layers, this list just
-        # contains `self`.
-        # This is used for the predictors to know which ensembling and
-        # aggregating functions to use for the outputs.
-        self.out_layers = [self]
-
         # This contains the initializers to be used for each parameter.
         self.inits = {}
 
 
-    def train_expr(self, X):
+    def train_expr(self, *Xs):
         """
-        Returns an expression computing the output at training-time given a
-        symbolic input `X`.
+        Returns an expression or a tuple of expressions computing the
+        output(s) at training-time given the symbolic input(s) in `Xs`.
         """
-        raise NotImplementedError("You need to implement `train_expr`!")
+        raise NotImplementedError("You need to implement `train_expr` or `train_exprs` for {}!".format(type(self).__name__))
 
 
-    def pred_expr(self, X, *args, **kwargs):
+    def pred_expr(self, *Xs):
         """
-        Returns a symbolic Theano expression which represents this layer's
-        output during prediction given `X` as input.
+        Returns an expression or a tuple of expressions to be computed jointly
+        during prediction given the symbolic input(s) in `Xs`.
 
         This defaults to calling `train_expr`, which is good enough for all
         layers which don't change between training and prediction.
         """
-        return self.train_expr(X, *args, **kwargs)
+        return self.train_expr(*Xs)
 
 
-    def pred_exprs(self, *args, **kwargs):
+    def make_inputs(self, name="Xin"):
         """
-        Returns a list of symbolic Theano expressions to be computed jointly
-        during prediction. For most layers, this will just be a list with the
-        return value of `pred_expr` as only element, which this defaults to.
-        """
-        return [self.pred_expr(*args, **kwargs)]
-
-
-    def make_input(self, name="X"):
-        """
-        Returns a Theano tensor variable with given `name` of the dimension
-        which this layer takes as input.
+        Returns a Theano tensor or a tuple of Theano tensors with given `names`
+        of the dimensions which this layer takes as input.
 
         **NOTE** that this needs to include a leading dimension for the
         minibatch.
 
-        Defaults to returning a matrix, i.e. each datapoint is a vector.
+        Defaults to returning a single matrix, i.e. each datapoint is a vector.
         """
         return _T.matrix(name)
 
@@ -178,6 +162,39 @@ class Layer(object):
             p.set_value(self.inits[p](p.get_value().shape, rng, **kw).astype(p.dtype))
 
 
+    def batch_agg(self):
+        """
+        Returns a function which can be used for aggregating the outputs of
+        minibatches in one epoch.
+
+        If the layer has multiple outputs, it should return a tuple of
+        aggregator functions.
+
+        This default implementation just concatenates them, which is a
+        sensible behaviour for almost all kinds of layers.
+        """
+        def agg(outputs):
+            return _np.concatenate(outputs)
+        return agg
+
+
+    def ensembler(self):
+        """
+        Returns a function which, given a list of multiple outputs for a
+        single minibatch, computes the output of ensembling them. This is
+        useful e.g. for ensembling the predictions of multiple augmentations.
+
+        If the layer has multiple outputs, it should return a tuple of
+        ensembler functions.
+
+        This default implementation computes the average of the outputs, whic
+        is a sensible behaviour for most kinds of outputs.
+        """
+        def ens(outputs):
+            return sum(outputs)/len(outputs)
+        return ens
+
+
 class FullyConnected(Layer):
     """
     Fully-connected layer is the typical "hidden" layer. Basically implements
@@ -220,7 +237,7 @@ class FullyConnected(Layer):
             self.b = self.newbias("b_fc", self.b_shape, b)
 
 
-    def make_input(self, name="X"):
+    def make_inputs(self, name="Xin"):
         return _T.TensorType(_th.config.floatX, (False,)*(1+len(self.inshape)))(name)
 
 
