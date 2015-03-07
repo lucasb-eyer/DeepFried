@@ -74,7 +74,7 @@ class AugmentationPipeline(object):
         for iaug in self._pred_indices(fast):
             img = image.reshape(self.imshape)
             for ia, a in zip(iaug, self.augmenters):
-                img = a.transform_pred(img, ia)
+                img = a.transform_pred(img, ia, fast)
 
             if len(image.shape) == 2:
                 yield img
@@ -127,7 +127,7 @@ class AugmentationPipeline(object):
             for i in range(B):
                 img = images[i].reshape(self.imshape)
                 for ia, a in zip(iaug, self.augmenters):
-                    img = a.transform_pred(img, ia)
+                    img = a.transform_pred(img, ia, fast)
                 out[i,:] = img.flat
             yield out
 
