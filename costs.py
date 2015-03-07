@@ -1,10 +1,149 @@
 #!/usr/bin/env python3
 
+from DeepFried.util import collect, tuplize
+
 import numpy as _np
 import theano.tensor as _T
+from itertools import islice as _islice
 
 
-class CategoricalCrossEntropy(object):
+class Cost(object):
+    """
+    Abstract superclass of all costs with a dual purpose:
+
+    1. Define common interface all layers should implement.
+    2. Implement boilerplate code which is the same for any kind of layer.
+
+    Note that only the second point is actually a valid one; introducing a
+    hierarchy of classes for the first one would be unpythonic.
+    """
+
+
+    def output_cost_expr(self, model, y, t):
+        """
+        Returns a theano expression computing the cost for given `model`'s
+        output `y` wrt. targets `t`.
+
+        Implement this one if your cost works on a single output and a single
+        target.
+        """
+        raise NotImplementedError("{} needs to either implement the single-output-single-target `output_cost_expr` cost function, or the multi-output-multi-target `cost_expr` cost function.".format(type(self).__name__))
+
+
+    def cost_expr(self, model, outputs, targets):
+        """
+        Returns a theano expression computing the cost for a given `model`'s
+        `outputs` wrt. the `targets`.
+
+        In the common case where there's just a single output and target,
+        this will delegate to `output_cost_expr`.
+        """
+        assert len(outputs) == 1, "{} can only handle a single output".format(type(self).__name__)
+        assert len(targets) == 1, "{} can only handle a single target".format(type(self).__name__)
+
+        return self.output_cost_expr(model, outputs[0], targets[0])
+
+
+    def make_target(self, *names):
+        """
+        Returns a Theano tensor or a tuple of Theano tensors with given `names`
+        of the dimensions which this layer takes as targets.
+        """
+        raise NotImplementedError("{} needs to implement the `make_target` method.".format(type(self).__name__))
+
+
+    def aggregate_batches(self, batchcosts):
+        """
+        Function used to aggregate the cost of multiple minibatches into an
+        estimate of the full model's cost over the full dataset.
+
+        By default, we aggregate by taking the mean.
+        """
+        return sum(batchcosts)/len(batchcosts)
+
+
+class MultiCost(Cost):
+    """
+    This cost is a weighted linear combination of other costs. It comes in
+    handy when the net has multiple outputs which should map to multiple
+    targets.
+    """
+
+    def __init__(self, *args):
+        super(MultiCost, self).__init__()
+
+        self.costs = []
+        self.weights = []
+
+        for a in args:
+            if isinstance(a, tuple):
+                self.add(a[1], a[0])
+            else:
+                self.add(a)
+
+
+    def add(self, cost, weight=1.0):
+        self.costs.append(cost)
+        self.weights.append(weight)
+
+
+    def make_target(self, *names):
+        if len(names) == 0:
+            return collect(c.make_target() for c in self.costs)
+        else:
+            # TODO: How to distribute the names to the costs otherwise!?
+            assert len(names) == len(self.costs), "For now, there can only be one explicitly named target per single cost in `{}`. Please file an issue with your use-case.".format(type(self).__name__)
+            return collect(c.make_target(n) for c, n in zip(self.costs, names))
+
+
+    def cost_expr(self, model, outputs, targets):
+        assert len(outputs) == len(targets), "Currently, there can only be exactly one output per target `{}`".format(type(self).__name__)
+
+        outs = iter(outputs)
+        tgts = iter(targets)
+
+        tot = 0
+        for w, c in zip(self.weights, self.costs):
+            # Nasty trick to figure out how many targets this cost eats and only
+            # eat that many. This allows for zero-target costs such as weight
+            # decays to be added into the mix.
+            n = len(tuplize(c.make_target(), tuplize_none=True))
+            tot += w*c.cost_expr(model, list(_islice(outs, n)), list(_islice(tgts, n)))
+
+        return tot
+
+
+class L2WeightRegCost(Cost):
+    """
+    Add this cost into the mix (e.g. using `MultiCost`) in order to add an L2
+    weight-regularization term, also know as weight-decay.
+    """
+
+
+    def cost_expr(self, model, outputs, targets):
+        return sum(_T.sum(W**2) for W in model.Ws)
+
+
+    def make_target(self, *names):
+        return None
+
+
+class L1WeightRegCost(Cost):
+    """
+    Add this cost into the mix (e.g. using `MultiCost`) in order to add an L1
+    weight-regularization term.
+    """
+
+
+    def cost_expr(self, model, outputs, targets):
+        return sum(_T.sum(abs(W)) for W in model.Ws)
+
+
+    def make_target(self, *names):
+        return None
+
+
+class CategoricalCrossEntropy(Cost):
     """
     This is the typical cost used together with a softmax output layer.
     """
@@ -17,6 +156,8 @@ class CategoricalCrossEntropy(object):
                     which doesn't really make sense to me but some criteria
                     require this.
         """
+        super(CategoricalCrossEntropy, self).__init__()
+
         if loclip is None and hiclip is None:
             self.clip = None
         else:
@@ -24,7 +165,7 @@ class CategoricalCrossEntropy(object):
                          1.0 if hiclip is None else hiclip)
 
 
-    def cost_expr(self, model, p_t_given_x, t):
+    def output_cost_expr(self, model, p_t_given_x, t):
         """
         Creates an expression computing the mean of the negative log-likelihoods
         of the predictions `p_t_given_x` wrt. the targets `t`:
@@ -43,8 +184,6 @@ class CategoricalCrossEntropy(object):
               If I'll ever run into the issue of getting nans here, I'll add
               the clipping here too.
         """
-        p_t_given_x = p_t_given_x[0]
-        t = t[0]
         # TODO: Wait for https://github.com/Theano/Theano/issues/2464
         return -_T.mean(_T.log(p_t_given_x[_T.arange(t.shape[0]), t]))
 
@@ -62,22 +201,12 @@ class CategoricalCrossEntropy(object):
         return -_np.mean(_np.log(pt))
 
 
-    def aggregate_batches(self, batchcosts):
-        """
-        Function used to aggregate the cost of multiple minibatches into an
-        estimate of the full model's cost over the full dataset.
-
-        In this case, we aggregate by taking the mean.
-        """
-        return sum(batchcosts)/len(batchcosts)
-
-
     def make_target(self, name="t"):
         """
-        Return a theano variable of just the right type for holding the targets.
+        Return a theano variable of just the right type for holding the target.
 
-        In this case, that means a vector of int32, each entry being the target
-        class of the corresponding sample in the minibatch.
+        In this case, that means a vector of int32, each entry being the
+        target class of the corresponding sample in the minibatch.
 
         - `name`: Name to give the variable, defaults to "t".
         """
