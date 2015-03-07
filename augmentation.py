@@ -43,7 +43,7 @@ class AugmentationPipeline(object):
         return _it.product(*(range(aug.npreds(fast)) for aug in self.augmenters))
 
 
-    def augimg_train(self, image):
+    def augimg_train(self, image, *targets):
         """
         Returns an "augmented" copy of the given `image`.
         This one is intendend for training, it's stochastic.
@@ -53,7 +53,7 @@ class AugmentationPipeline(object):
         img = image.reshape(self.imshape)
 
         for a in self.augmenters:
-            img = a.transform_train(img)
+            img = a.transform_train(img, *targets)
 
         if len(image.shape) == 2:
             return img
@@ -82,7 +82,7 @@ class AugmentationPipeline(object):
                 yield img.flatten()
 
 
-    def augbatch_train(self, images):
+    def augbatch_train(self, images, *targets):
         """
         Returns an "augmented" copy of the given batch of `images`.
         This one is intendend for training, it's stochastic.
@@ -100,7 +100,7 @@ class AugmentationPipeline(object):
         for i in range(B):
             img = images[i].reshape(self.imshape)
             for a in self.augmenters:
-                img = a.transform_train(img)
+                img = a.transform_train(img, *targets)
             out[i,:] = img.flat
         return out
 
@@ -159,7 +159,7 @@ class Augmenter(object):
         return inshape
 
 
-    def transform_train(self, img):
+    def transform_train(self, img, *targets):
         """
         Randomly transform the given `img` for generating a new training sample.
         """
@@ -181,7 +181,7 @@ class HorizontalFlipper(Augmenter):
     def npreds(self, fast=False):
         return 2
 
-    def transform_train(self, img):
+    def transform_train(self, img, *targets):
         return _np.fliplr(img) if _np.random.random() < 0.5 else img
 
     def transform_pred(self, img, i, fast=False):
@@ -215,7 +215,7 @@ class Cropper(Augmenter):
         return self.osh
 
 
-    def transform_train(self, img):
+    def transform_train(self, img, *targets):
         dx = _np.random.randint(img.shape[1] - self.osh[1])
         dy = _np.random.randint(img.shape[0] - self.osh[0])
         return img[dy:dy+self.osh[0], dx:dx+self.osh[1]]
@@ -282,7 +282,7 @@ class Rotator(Augmenter):
         return len(self.pred_angles[fast])
 
 
-    def transform_train(self, img):
+    def transform_train(self, img, *targets):
         deg = _np.random.uniform(self.pred_angles[False][0], self.pred_angles[False][-1])
         return _spint.rotate(img, deg,
             reshape=False, mode='nearest',
