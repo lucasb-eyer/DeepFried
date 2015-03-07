@@ -334,3 +334,60 @@ class ReLU(Layer):
         def init(shape, *a, **kw):
             return _np.zeros(shape)
         return init
+
+
+class Tanh(Layer):
+    """
+    Typical tanh nonlinearity layer of oldschool nnets.
+    """
+
+
+    def __init__(self, init='Xavier'):
+        """
+        Creates a Tanh layer which computes the elementwise application of the
+        tanh function:
+
+            out = tanh(X)
+
+        - `init`: The initialization technique to use for initializing another
+                  layer's weights. Currently available techniques are:
+            - `'Xavier'`: Uniform-random Xavier initialization from [1].
+            - `'XavierN'`: Normal-random [2] way of achieving Xavier
+                           initialization.
+            - A number: Standard deviation (sigma) of the normal distribution
+                        to sample from.
+
+        1: Understanding the difficulty of training deep feedforward neural networks.
+        2: Delving Deep into Rectifiers.
+        """
+        super(Tanh, self).__init__()
+        self.init = init
+
+
+    def train_expr(self, X):
+        return _T.tanh(X)
+
+
+    def weightinitializer(self):
+        """ See the documentation of `Layer`. """
+        if self.init == 'Xavier':
+            def init(shape, rng, fan_in, fan_out):
+                fan_mean = (fan_in+fan_out)/2
+                return rng.uniform(-_np.sqrt(6/fan_mean), _np.sqrt(6/fan_mean), shape)
+            return init
+        elif self.init == 'XavierN':
+            def init(shape, rng, fan_in, fan_out):
+                fan_mean = (fan_in+fan_out)/2
+                return _np.sqrt(1/fan_mean)*rng.standard_normal(shape)
+            return init
+        else:
+            def init(shape, rng, *a, **kw):
+                return self.init*rng.standard_normal(shape)
+            return init
+
+
+    def biasinitializer(self):
+        """ See the documentation of `Layer`. """
+        def init(shape, *a, **kw):
+            return _np.zeros(shape)
+        return init
