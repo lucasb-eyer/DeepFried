@@ -548,3 +548,39 @@ class Conv2D(Layer):
             out += self.b.dimshuffle('x', 0, 'x', 'x')
 
         return out
+
+
+class SpatialMaxPool(Layer):
+    """
+    Your local neighborhood's pool. Quite full during summer.
+    """
+
+    def __init__(self, size, stride=None, ignore_border=False):
+        """
+        Creates a 2D max-pooling layer which pools over the 2 last dimensions.
+
+        - `size`: The size (h,w) of the pooled patches.
+        - `stride`: Not supported yet, will be in newer Theano version.
+        - `ignore_border`: whether to make use of left-over border when sizes
+            are not perfectly divisible, or just ignore it.
+        """
+        super(SpatialMaxPool, self).__init__()
+
+        if isinstance(size, numbers.Integral):
+            size = (size, size)
+        self.size = size
+
+        if isinstance(stride, numbers.Integral):
+            stride = (stride, stride)
+        self.stride = stride
+
+        self.ignore_border = ignore_border
+
+
+    def make_inputs(self, name="Xin"):
+        # Actually, this could be anything > 2D.
+        return _T.tensor4(name)
+
+
+    def train_expr(self, X, **kw):
+        return _T.signal.downsample.max_pool_2d(X, ds=self.size, ignore_border=self.ignore_border)
