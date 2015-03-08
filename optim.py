@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from DeepFried.util import batched, tuplize
+from DeepFried.util import batched, tuplize, maybetuple
 
 import numpy as _np
 import theano as _th
@@ -35,11 +35,13 @@ class StreaMiniOptimizer(object):
         - `cost`: The cost. This should be an object with at least:
             - `make_target(name='')`: a function which returns a symbolic
                 variable of the correct dimensions for serving as target.
-            - `cost_expr(Y, t)`: a function which returns the symbolic cost
+            - `out_expr(Y, t)`: a function which returns the symbolic cost
                 of the output `Y` wrt. the targets `t`.
             - `aggregate_batches(costs)`: a function which returns the
                 aggregation of the `costs` of each minibatch.
-        - `extra_outs`: TODO
+        - `extra_outs`: A single or a list of extra outputs to compute along
+            the way. Each such extra should be an object with both `out_expr`
+            and `aggregate_batches` just like described for `cost` above.
         - `Xnames`: Optional list of names to use for input variables. Note
             that this must be exactly as many names as the model has inputs,
             then these names may be used as keyword arguments to `fit_epoch`.
@@ -51,10 +53,13 @@ class StreaMiniOptimizer(object):
 
         self.Xs = tuplize(self.model.make_inputs(*Xnames))
         self.targets = tuplize(self.cost.make_target(*tnames))
+        self.xtras = tuplize(extra_outs, tuplize_none=True)
 
         train_expr = tuplize(self.model.train_expr(*self.Xs))
-        self.cost_expr = self.cost.cost_expr(self.model, train_expr, self.targets)
-        self.outs = (self.cost_expr,) + tuplize(extra_outs, tuplize_none=True)
+        self.cost_expr = self.cost.out_expr(self.model, train_expr, self.targets)
+        self.outs = (self.cost_expr,) + tuple(
+            x.out_expr(self.model, train_expr, self.targets) for x in self.xtras
+        )
 
 
     def fit_epoch(self, X, t, aug=None, batchsize=None, **kwargs):
@@ -75,7 +80,7 @@ class StreaMiniOptimizer(object):
         this can be used to pass values such as learning-rate, momentum etc.
         """
         costs = []
-        rests = []
+        xtras = []
 
         # Sanitize inputs for more flexibility.
         Xs = tuplize(X)
@@ -99,14 +104,16 @@ class StreaMiniOptimizer(object):
 
             # Uploads to the GPU, does the forward pass,
             # the backward pass *and* the weight updates!
-            cost, *rest = self.fn_train(*bxs+bts, **kwargs)
+            cost, *xtra = self.fn_train(*bxs+bts, **kwargs)
 
             # Collect stats over the batches, so we can aggregate.
             costs.append(cost)
-            rests.append(rest)
+            xtras.append(xtra)
 
         # Average the stats over the batches.
-        return self.cost.aggregate_batches(costs), None  # TODO
+        return maybetuple((self.cost.aggregate_batches(costs),)
+                        + tuple(x.aggregate_batches(b) for x, b in zip(self.xtras, zip(*xtras))))
+        # The above zip transposes from minibatches of extras to extras of minibatches.
 
 
 class StreaMiniSGD(StreaMiniOptimizer):
