@@ -72,13 +72,13 @@ class Sequence(Layer):
         return self.layers[0].make_inputs(*names)
 
 
-    def train_expr(self, *Xs):
+    def train_expr(self, *Xs, **kw):
         """
         Concatenates the training expression of all layers one to another
         and returns the training expression(s) of the last layer.
         """
         for l in self.layers:
-            Xs = l.train_expr(*tuplize(Xs))
+            Xs = l.train_expr(*tuplize(Xs), **kw)
         return Xs
 
 
@@ -166,12 +166,12 @@ class Parallel(Layer):
         return ins
 
 
-    def train_expr(self, X):
+    def train_expr(self, X, **kw):
         """
         Returns the training expressions of all contained layers, since each
         contained layer contributes to an output.
         """
-        return collect(l.train_expr(X) for l in self.layers)
+        return collect(l.train_expr(X, **kw) for l in self.layers)
 
 
     def pred_expr(self, X):

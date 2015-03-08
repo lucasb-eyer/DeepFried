@@ -55,7 +55,8 @@ class StreaMiniOptimizer(object):
         self.targets = tuplize(self.cost.make_target(*tnames))
         self.xtras = tuplize(extra_outs, tuplize_none=True)
 
-        train_expr = tuplize(self.model.train_expr(*self.Xs))
+        self.xtra_updates = []
+        train_expr = tuplize(self.model.train_expr(*self.Xs, updates=self.xtra_updates))
         self.cost_expr = self.cost.out_expr(self.model, train_expr, self.targets)
         self.outs = (self.cost_expr,) + tuple(
             x.out_expr(self.model, train_expr, self.targets) for x in self.xtras
@@ -69,7 +70,7 @@ class StreaMiniOptimizer(object):
         self.fn_train = _th.function(
             inputs=self.Xs + self.targets + tuplize(extra_in, tuplize_none=True),
             outputs=self.outs + tuplize(extra_out, tuplize_none=True),
-            updates=updates,
+            updates=updates + self.xtra_updates,
             name=name
         )
 

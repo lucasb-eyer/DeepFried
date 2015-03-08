@@ -55,10 +55,18 @@ class Layer(object):
         self.inits = {}
 
 
-    def train_expr(self, *Xs):
+    def train_expr(self, *Xs, **kw):
         """
         Returns an expression or a tuple of expressions computing the
         output(s) at training-time given the symbolic input(s) in `Xs`.
+
+        The following may be contained in `kw`:
+
+        - `updates`: A list to which extra Theano updates which should be
+            performed during training can be added.
+            The layout is the same as for `theano.function`: `updates` is a
+            list of pairs where the first element is the shared variable to be
+            updated and the second element is the update expression.
         """
         raise NotImplementedError("You need to implement `train_expr` or `train_exprs` for {}!".format(type(self).__name__))
 
@@ -242,7 +250,7 @@ class FullyConnected(Layer):
         return _T.TensorType(_th.config.floatX, (False,)*(1+len(self.inshape)))(name)
 
 
-    def train_expr(self, X):
+    def train_expr(self, X, **kw):
         batchsize = X.shape[0]
 
         # For non-1D inputs, add a flattening step for convenience.
@@ -278,7 +286,7 @@ class Softmax(Layer):
         super(Softmax, self).__init__()
 
 
-    def train_expr(self, X):
+    def train_expr(self, X, **kw):
         """
         Returns an expression computing the output at training-time given a
         symbolic input `X`.
@@ -337,7 +345,7 @@ class ReLU(Layer):
         self.init = init
 
 
-    def train_expr(self, X):
+    def train_expr(self, X, **kw):
         if self.cap is None:
             return _T.maximum(self.leak*X, X)
         else:
@@ -402,7 +410,7 @@ class Tanh(Layer):
         self.init = init
 
 
-    def train_expr(self, X):
+    def train_expr(self, X, **kw):
         return _T.tanh(X)
 
 
