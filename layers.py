@@ -457,3 +457,94 @@ class Tanh(Layer):
         def init(shape, *a, **kw):
             return _np.zeros(shape)
         return init
+
+
+class Conv2D(Layer):
+    """
+    Your local neighborhood convolutional layer.
+
+    If `*` is the convolution, it computes the following operation:
+
+    out[b,k,:,:] = sum_d filt[k,d,:,:] * in[b,d,:,:] + b[k]
+
+    `b` goes through the minibatch samples,
+    `k` goes through the filterbank-kernels, and
+    `d` sums across the input image dimensions.
+    """
+
+    def __init__(self, nconv, convshape, imdepth, imshape=None,
+                 stride=(1,1), border_mode='valid',
+                 bias=True, W=None, b=None):
+        """
+        Creates a 2D convolutional layer with the following properties:
+
+        - `nconv`: The number of filters in the filterbank. This will also be
+            the depth of the output image, since there's one layer per filter.
+        - `convshape`: A number or a pair of numbers specifying the size (h,w)
+            of the filters. If it's a single number, the filters are square.
+        - `imdepth`: The number of layers the input image has. For RGB images,
+            this would be three.
+        - `imshape`: Optionally the shape (h,w) of the input image.
+            If specified, the input will automatically be reshaped to this,
+            taking `imdepth` and the batchsize into account.
+            If `None`, the input could be images of any size,
+            but needs to be shaped in the correct dimension, i.e. 4D.
+        - `stride`: Factor by which the output is subsampled, *not* pooled.
+            Note that this doesn't save computations as it's still doing the
+            full convolution first. Isn't it almost pointless?
+        - `border_mode`: From Theano's documentation:
+            - `"valid"`: only apply filter to complete patches of the image.
+                Output shape: image_shape - filter_shape + 1
+            - `"full"`: zero-pads image to multiple of filter shape.
+                Output shape: image_shape + filter_shape - 1
+        - `bias`: Whether to use a bias term or not.
+                  For example, if a minibatch-normalization follows,
+                  a bias term is useless.
+        - `W`: Optional initial value for the weights.
+        - `b`: Optional initial value for the bias.
+        """
+        super(Conv2D, self).__init__()
+
+        # Allow for specifying the conv shape as a single number if square.
+        if isinstance(convshape, numbers.Integral):
+            convshape = (convshape, convshape)
+
+        self.border_mode = border_mode
+        self.stride = stride
+        self.imshape = imshape
+        self.imdepth = imdepth
+
+        fan_in = imdepth * _np.prod(convshape)
+        fan_out = nconv * _np.prod(convshape)
+
+        self.W_shape = (nconv, imdepth) + convshape
+        self.W = self.newweight("W_conv", self.W_shape, W)
+        self.W._df_init_kw = dict(fan_in=fan_in, fan_out=fan_out)
+
+        if bias:
+            self.b_shape = (nconv,)
+            self.b = self.newbias("b_fc", self.b_shape, b)
+
+
+    def make_inputs(self, name="Xin"):
+        if self.imshape is None:
+            return _T.tensor4(name)
+        else:
+            return _T.matrix(name)
+
+
+    def train_expr(self, X, **kw):
+        if self.imshape is not None:
+            X = X.reshape((X.shape[0], self.imdepth) + self.imshape)
+
+        out = _T.nnet.conv.conv2d(X, self.W,
+            image_shape=(None, self.imdepth) + (self.imshape or (None, None)),
+            filter_shape=self.W_shape,
+            border_mode=self.border_mode,
+            subsample=self.stride
+        )
+
+        if hasattr(self, "b"):
+            out += self.b.dimshuffle('x', 0, 'x', 'x')
+
+        return out
