@@ -3,6 +3,7 @@
 import numpy as _np
 import theano as _th
 import theano.tensor as _T
+import numbers
 
 from DeepFried.util import tuplize as _tuplize
 from DeepFried.util import check_random_state as _check_random_state
@@ -98,10 +99,8 @@ class Layer(object):
         - `empty`: function which should return a new value for the variable,
                    will only be called if `val` is None.
         """
-        p, i = self._newparam(*args, **kwargs)
+        p = self._newparam(*args, **kwargs)
         self.Ws.append(p)
-        self.params.append(p)
-        self.inits[p] = i
         return p
 
 
@@ -117,21 +116,20 @@ class Layer(object):
         - `empty`: function which should return a new value for the variable,
                    will only be called if `val` is None.
         """
-        p, i = self._newparam(*args, **kwargs)
+        p = self._newparam(*args, **kwargs)
         self.bs.append(p)
-        self.params.append(p)
-        self.inits[p] = i
         return p
 
 
     def _newparam(self, name, shape, val=None, init=None):
         name = "{}{}".format(name, 'x'.join(map(str, shape)))
 
-        if val is None:
-            if init is None:
-                init = lambda shape, *a, **kw: _np.full(shape, _np.nan, dtype=_th.config.floatX)
+        if val is None and init is None:
+            init = lambda shape, *a, **kw: _np.full(shape, _np.nan, dtype=_th.config.floatX)
         elif isinstance(val, _np.ndarray):
             init = lambda *a, **kw: val
+        elif isinstance(val, numbers.Real):
+            init = lambda *a, **kw: _np.full(shape, val, dtype=_th.config.floatX)
         elif isinstance(val, _T.TensorVariable):
             # When using an existing theano shared variable, don't store nay
             # initializer as "the origina" probably already has one.
@@ -139,7 +137,10 @@ class Layer(object):
         else:
             raise ValueError("Couldn't understand parameters for parameter creation.")
 
-        return _th.shared(init(shape).astype(_th.config.floatX), name=name), init
+        p = _th.shared(init(shape).astype(_th.config.floatX), name=name)
+        self.params.append(p)
+        self.inits[p] = init
+        return p
 
 
     def reinit(self, rng):
