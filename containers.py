@@ -4,6 +4,13 @@ from DeepFried.layers import Layer
 from DeepFried.util import collect, tuplize
 
 
+def _mkproxy(self, fn):
+    def proxy(*a, **kw):
+        for l in self.layers:
+            getattr(l, fn)(*a, **kw)
+    return proxy
+
+
 class Sequence(Layer):
 
     def __init__(self, *layers):
@@ -27,6 +34,13 @@ class Sequence(Layer):
 
         for l in layers:
             self.append(l)
+
+        # And forward a whole bunch of functions.
+        self.reinit =_mkproxy(self, 'reinit')
+        self.pre_epoch =_mkproxy(self, 'pre_epoch')
+        self.pre_minibatch =_mkproxy(self, 'pre_minibatch')
+        self.post_minibatch =_mkproxy(self, 'post_minibatch')
+        self.post_epoch =_mkproxy(self, 'post_epoch')
 
 
     def append(self, layer, init_previous=1, initializes=None):
@@ -91,14 +105,6 @@ class Sequence(Layer):
         return Xs
 
 
-    def reinit(self, rng):
-        """
-        Re-initializes all contained layers. See `Layer` documentation for more.
-        """
-        for l in self.layers:
-            l.reinit(rng)
-
-
     def ensembler(self):
         """
         Uses the ensembler of the last (i.e. output) layer of the stack.
@@ -136,6 +142,13 @@ class Parallel(Layer):
 
         for l in layers:
             self.append(l)
+
+        # And forward a whole bunch of functions.
+        self.reinit =_mkproxy(self, 'reinit')
+        self.pre_epoch =_mkproxy(self, 'pre_epoch')
+        self.pre_minibatch =_mkproxy(self, 'pre_minibatch')
+        self.post_minibatch =_mkproxy(self, 'post_minibatch')
+        self.post_epoch =_mkproxy(self, 'post_epoch')
 
 
     def append(self, layer):
@@ -180,14 +193,6 @@ class Parallel(Layer):
         contained layer contributes to an output.
         """
         return collect(l.pred_expr(X) for l in self.layers)
-
-
-    def reinit(self, rng):
-        """
-        Reinitializes all contained layers with the given `rng`.
-        """
-        for l in self.layers:
-            l.reinit(rng)
 
 
     def ensembler(self):

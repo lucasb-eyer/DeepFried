@@ -92,6 +92,8 @@ class StreaMiniOptimizer(object):
         Any remaining arguments will be passed on to the optimization function;
         this can be used to pass values such as learning-rate, momentum etc.
         """
+        self.model.pre_epoch()
+
         costs = []
         xtras = []
 
@@ -115,6 +117,8 @@ class StreaMiniOptimizer(object):
             if aug is not None:
                 bxs = tuplize(aug.augbatch_train(*bxs+bts))
 
+            self.model.pre_minibatch()
+
             # Uploads to the GPU, does the forward pass,
             # the backward pass *and* the weight updates!
             cost, *xtra = self.fn_train(*bxs+bts, **kwargs)
@@ -122,6 +126,10 @@ class StreaMiniOptimizer(object):
             # Collect stats over the batches, so we can aggregate.
             costs.append(cost)
             xtras.append(xtra)
+
+            self.model.post_minibatch()
+
+        self.model.post_epoch()
 
         # Average the stats over the batches.
         return maybetuple((self.cost.aggregate_batches(costs),)

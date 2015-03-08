@@ -204,6 +204,26 @@ class Layer(object):
         return ens
 
 
+    # And a whole bunch of hooks that some weird layers may utilize.
+    # (I'm thinking of you, BN!)
+
+
+    def pre_epoch(self):
+        pass
+
+
+    def pre_minibatch(self):
+        pass
+
+
+    def post_minibatch(self):
+        pass
+
+
+    def post_epoch(self):
+        pass
+
+
 class FullyConnected(Layer):
     """
     Fully-connected layer is the typical "hidden" layer. Basically implements
