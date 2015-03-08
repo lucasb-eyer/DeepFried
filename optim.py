@@ -62,7 +62,19 @@ class StreaMiniOptimizer(object):
         )
 
 
-    def fit_epoch(self, X, t, aug=None, batchsize=None, **kwargs):
+    def _mk_train_fn(self, name, updates, extra_in=None, extra_out=None):
+        """
+        To be used by specializations only.
+        """
+        self.fn_train = _th.function(
+            inputs=self.Xs + self.targets + tuplize(extra_in, tuplize_none=True),
+            outputs=self.outs + tuplize(extra_out, tuplize_none=True),
+            updates=updates,
+            name=name
+        )
+
+
+    def fit_epoch(self, X, t, aug=None, batchsize=None, shuf=False, **kwargs):
         """
         Trains the model for one full epoch by iterating through minibatches.
 
@@ -136,15 +148,11 @@ class StreaMiniSGD(StreaMiniOptimizer):
 
         self.sh_learningrate = _T.scalar('lrate')
 
-        # For SGD, training is quite simple:
-        # p_e+1 = p_e - lr * grad(p_e)
         g = _T.grad(cost=self.cost_expr, wrt=self.model.params)
-        self.fn_train = _th.function(
-            inputs=self.Xs + self.targets + (self.sh_learningrate,),
-            outputs=self.outs,
-            updates=[(p, p - self.sh_learningrate * gp) for p, gp in zip(self.model.params, g)],
-            name="StreaMiniSGD train"
-        )
+
+        self._mk_train_fn("StreaMiniSGD train",
+            [(p, p - self.sh_learningrate * gp) for p, gp in zip(self.model.params, g)],
+            extra_in=self.sh_learningrate)
 
 
 class StreaMiniMomentum(StreaMiniOptimizer):
@@ -212,11 +220,9 @@ class StreaMiniMomentum(StreaMiniOptimizer):
             else:
                 updates.append((sh_p, sh_p + self.sh_momentum * v - self.sh_learningrate * gp))
 
-        self.fn_train = _th.function(
-            inputs=self.Xs + self.targets + (self.sh_learningrate, _th.Param(self.sh_momentum, momentum)),
-            outputs=self.outs,
-            updates=updates,
-            name="StreaMiniMomentum train"
+        self._mk_train_fn("StreaMiniMomentum train",
+            updates,
+            extra_in=(self.sh_learningrate, _th.Param(self.sh_momentum, momentum))
         )
 
 
@@ -276,11 +282,9 @@ class StreaMiniAdaGrad(StreaMiniOptimizer):
             # implementations do, I just initialize `g2` to eps, that should
             # have the same effect, but cheaper.
 
-        self.fn_train = _th.function(
-            inputs=self.Xs + self.targets + (self.sh_learningrate,),
-            outputs=self.outs,
-            updates=updates,
-            name="StreaMiniAdaGrad train"
+        self._mk_train_fn("StreaMiniAdaGrad train",
+            updates,
+            extra_in=self.sh_learningrate
         )
 
 
@@ -333,11 +337,9 @@ class StreaMiniRMSProp(StreaMiniOptimizer):
             updates.append((sh_g2, g2))
             updates.append((sh_p, sh_p - self.sh_learningrate/_T.sqrt(eps+g2) * gp))
 
-        self.fn_train = _th.function(
-            inputs=self.Xs + self.targets + (self.sh_learningrate, _th.Param(self.sh_rho, rho)),
-            outputs=self.outs,
-            updates=updates,
-            name="StreaMiniRMSProp train"
+        self._mk_train_fn("StreaMiniRMSProp train",
+            updates,
+            extra_in=(self.sh_learningrate, _th.Param(self.sh_rho, rho))
         )
 
 
@@ -405,12 +407,7 @@ class StreaMiniAdaDelta(StreaMiniOptimizer):
             updates.append((sh_p, sh_p - up))
             updates.append((sh_d2, d2))
 
-        # Notice how we never used the learning-rate!
-        # We thus need to tell Theano that we're aware of the fact
-        # that we're not using it.
-        self.fn_train = _th.function(
-            inputs=self.Xs + self.targets + (_th.Param(self.sh_rho, rho),),
-            outputs=self.outs,
-            updates=updates,
-            name="StreaMiniAdaDelta train"
+        self._mk_train_fn("StreaMiniAdaDelta train",
+            updates,
+            extra_in=_th.Param(self.sh_rho, rho)
         )
