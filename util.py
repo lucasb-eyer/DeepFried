@@ -86,3 +86,7 @@ def check_random_state(seed):
         return seed
 
     raise ValueError('{!r} cannot be used to seed a numpy.random.RandomState instance'.format(seed))
+
+
+def check_all_initialized(model):
+    return all(not _np.any(_np.isnan(p.get_value())) for p in model.params)

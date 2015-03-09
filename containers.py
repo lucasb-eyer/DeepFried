@@ -43,7 +43,7 @@ class Sequence(Layer):
         self.post_epoch =_mkproxy(self, 'post_epoch')
 
 
-    def append(self, layer, init_previous=1, initializes=None):
+    def append(self, layer, init_previous=True, initializes=None):
         """
         Appends a `layer` onto the sequence, making the output of the previous
         one be the input of this one. Additionally, `layer` will be used as
@@ -51,8 +51,16 @@ class Sequence(Layer):
         all the layers given in `initializes`.
 
         - `layer`: The `Layer` to append.
-        - `init_previous`: how many preceding weight layers this one inits.
+        - `init_previous`:
+            - If `True`, initialize *all* of the preceding layers up to the
+                next one which has an initializer method.
+            - If a number n, unconditionally initialize the previons n layers.
+                Note that passing `False` equals passing 0.
         - `initializes`: a `Layer` or list of `Layer`s which this one inits.
+
+        Note that a layer will always try to initialize itself too.
+
+        Returns `layer` to allow one-liners.
         """
 
         self.layers.append(layer)
@@ -61,25 +69,35 @@ class Sequence(Layer):
         self.params += layer.params
 
         def registerinit(l):
-            for W in l.Ws:
-                l.inits[W] = layer.weightinitializer()
-            for b in l.bs:
-                l.inits[b] = layer.biasinitializer()
+            if hasattr(layer, "weightinitializer"):
+                #print(layer, "inits W of", l)
+                for W in l.Ws:
+                    l.inits[W] = layer.weightinitializer()
+            if hasattr(layer, "biasinitializer"):
+                #print(layer, "inits b of", l)
+                for b in l.bs:
+                    l.inits[b] = layer.biasinitializer()
 
-        # If it's explicitly stated which other layers this one should
-        # initialize, don't bother searching and also don't bother checking
-        # whether this one actually can initialize.
-        if isinstance(initializes, Layer):
-            pass
-        elif initializes is not None:
-            for l in initializes:
+        # If it's explicitly stated which other layers this one should init,
+        # just do it: trust the user!
+        for l in tuplize(initializes, tuplize_none=True):
+            registerinit(l)
+
+        # Initialize all previous layers up to the next initializer.
+        if init_previous is True:
+            registerinit(layer)
+            for l in reversed(self.layers[:-1]):
+                if hasattr(l, "weightinitializer") or hasattr(l, "biasinitializer"):
+                    break
+                registerinit(l)
+        # Unconditionally initialize all previous layers.
+        else:
+            # Also covers False and 0 thanks to the -1
+            # and layer being already there.
+            for l in self.layers[-init_previous-1:]:
                 registerinit(l)
 
-        # Initialize the previous `init_previous` layers otherwise, but only
-        # if the layer actually can initialize.
-        if hasattr(layer, "weightinitializer") and hasattr(layer, "biasinitializer"):
-            for i in range(2, init_previous+2):
-                registerinit(self.layers[-i])
+        return layer
 
 
     def make_inputs(self, *names):
@@ -155,11 +173,14 @@ class Parallel(Layer):
         """
         Appends a `layer` onto the stack, giving it the same input as all other
         layers get and adding its output to this layer's outputs.
+
+        Returns `layer` to allow one-liners.
         """
         self.layers.append(layer)
         self.Ws += layer.Ws
         self.bs += layer.bs
         self.params += layer.params
+        return layer
 
 
     def make_inputs(self, *names):
