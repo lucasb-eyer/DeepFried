@@ -5,7 +5,7 @@ import theano as _th
 import theano.tensor as _T
 import numbers
 
-from DeepFried.util import tuplize as _tuplize
+from DeepFried.util import tuplize as _tuplize, maybetuple as _maybetuple
 from DeepFried.util import check_random_state as _check_random_state
 
 
@@ -457,6 +457,45 @@ class Tanh(Layer):
         def init(shape, *a, **kw):
             return _np.zeros(shape)
         return init
+
+
+class Dropout(Layer):
+    """
+    See "Improving neural networks by preventing co-adaptation of feature detectors"
+    by Hinton, Srivastava, Krizhevsky, Sutskever and Salakhutdinov.
+    """
+
+    def __init__(self, p=0.5):
+        """
+        The probability of dropping out.
+        """
+        super(Dropout, self).__init__()
+
+        # We need 1-p here since p is the probability of dropping out,
+        # i.e. being multiplied by zero,
+        # while binomial expects the probability of 1, i.e. keeping.
+        self.p_keep = 1-p
+        self.seed = self.srng = None
+
+
+    def reinit(self, rng):
+        rng = _check_random_state(rng)
+        self.seed = rng.randint(2**31)
+        self.srng = _T.shared_randomstreams.RandomStreams(self.seed)
+
+
+    def train_expr(self, *Xs, **kw):
+        if self.srng is None:
+            raise RuntimeError("You forgot to initialize the {} layer!".format(type(self).__name__))
+
+        return _maybetuple(x * self.srng.binomial(n=1, p=self.p_keep,
+                                                  size=x.shape,
+                                                  dtype=x.dtype)
+                           for x in _tuplize(Xs))
+
+
+    def pred_expr(self, *Xs):
+        return _maybetuple(x * self.p_keep for x in _tuplize(Xs))
 
 
 class Conv2D(Layer):
