@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from DeepFried.util import tuplize, batched, maybetuple
+import DeepFried.util as _u
 
 import theano as _th
 
@@ -34,11 +34,11 @@ class StreaMiniPredictor(object):
         self.model = model
         self.batchsize = batchsize
 
-        self.Xs = tuplize(self.model.make_inputs(*Xnames))
+        self.Xs = _u.tuplize(self.model.make_inputs(*Xnames))
 
-        outs = tuplize(self.model.pred_expr(*self.Xs))
-        self.batch_aggs = tuplize(self.model.batch_agg())
-        self.ensemblers = tuplize(self.model.ensembler())
+        outs = _u.tuplize(self.model.pred_expr(*self.Xs))
+        self.batch_aggs = _u.tuplize(self.model.batch_agg())
+        self.ensemblers = _u.tuplize(self.model.ensembler())
 
         # A few sanity checks before compiling the function.
         assert len(outs) == len(self.batch_aggs), "The amount of outputs ({}) differs from the amount of batch aggregators ({}). You probably hit a bug, please file an issue".format(len(outs), len(self.batch_aggs))
@@ -75,17 +75,17 @@ class StreaMiniPredictor(object):
         preds = [[] for _ in range(nout)]  # N.B. [[]]*nout won't work.
 
         # Sanitize inputs for more flexibility
-        Xs = tuplize(X)
+        Xs = _u.tuplize(X)
         bs = batchsize or self.batchsize
 
         assert all(X.shape[0] == Xs[0].shape[0] for X in Xs), "All inputs to pred_epoch should contain the same amount of datapoints."
 
         # Go through the training in minibatches. Note that the last batch
         # may be smaller than the batchsize.
-        for bxs in batched(bs, *Xs):
+        for bxs in _u.batched(bs, *Xs):
             # Possibly need to re-tuplize them because `batched` tries to be
             # smart and not return a tuple if batching a single array.
-            bxs = tuplize(bxs)
+            bxs = _u.tuplize(bxs)
 
             # For prediction, augmentation makes a big difference:
             if aug is not None:
@@ -100,7 +100,7 @@ class StreaMiniPredictor(object):
                 # augmentation in the case of multiple inputs is domain-
                 # specific knowledge.
                 for bxs_aug in aug.augbatch_pred(*bxs, fast=fast):
-                    bxs_aug = tuplize(bxs_aug)
+                    bxs_aug = _u.tuplize(bxs_aug)
                     outs = self.fn_pred(*bxs_aug, **kwargs)
                     for p, o in zip(augpreds, outs):
                         p.append(o)
@@ -119,4 +119,4 @@ class StreaMiniPredictor(object):
         # Now collect all predictions over the minibatches.
         # Predictions may be collected differently, e.g. errors are summed
         # while scores (e.g. neg-log-likelihood) are usually averaged.
-        return maybetuple(agg(p) for p, agg in zip(preds, self.batch_aggs))
+        return _u.maybetuple(agg(p) for p, agg in zip(preds, self.batch_aggs))

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-from DeepFried.layers import Layer
-from DeepFried.util import collect, tuplize
+from DeepFried.layers import Layer as _Layer
+import DeepFried.util as _u
 
 
 def _mkproxy(self, fn):
@@ -11,7 +11,7 @@ def _mkproxy(self, fn):
     return proxy
 
 
-class Sequence(Layer):
+class Sequence(_Layer):
 
     def __init__(self, *layers):
         """
@@ -80,7 +80,7 @@ class Sequence(Layer):
 
         # If it's explicitly stated which other layers this one should init,
         # just do it: trust the user!
-        for l in tuplize(initializes, tuplize_none=True):
+        for l in _u.tuplize(initializes, tuplize_none=True):
             registerinit(l)
 
         # Initialize all previous layers up to the next initializer.
@@ -110,7 +110,7 @@ class Sequence(Layer):
         and returns the training expression(s) of the last layer.
         """
         for l in self.layers:
-            Xs = l.train_expr(*tuplize(Xs), **kw)
+            Xs = l.train_expr(*_u.tuplize(Xs), **kw)
         return Xs
 
 
@@ -119,7 +119,7 @@ class Sequence(Layer):
         Same as `train_expr` but for prediction expressions.
         """
         for l in self.layers:
-            Xs = l.pred_expr(*tuplize(Xs))
+            Xs = l.pred_expr(*_u.tuplize(Xs))
         return Xs
 
 
@@ -137,7 +137,7 @@ class Sequence(Layer):
         return self.layers[-1].batch_agg()
 
 
-class Parallel(Layer):
+class Parallel(_Layer):
 
     def __init__(self, *layers):
         """
@@ -189,11 +189,11 @@ class Parallel(Layer):
         first contained layer to create inputs, though it does check whether
         they'd all create similar inputs.
         """
-        ins = tuplize(self.layers[0].make_inputs(*names))
+        ins = _u.tuplize(self.layers[0].make_inputs(*names))
 
         # A crude way of making sure all layers take the same input.
         for l in self.layers[1:]:
-            lins = tuplize(l.make_inputs(*names))
+            lins = _u.tuplize(l.make_inputs(*names))
             assert len(ins) == len(lins), "All parallel layers must require the same number of inputs!\n{} requires {}, but {} requires {}".format(self.out_layers[0], len(ins), l, len(lins))
             assert all(a.ndim == b.ndim for a, b in zip(ins, lins)), "All parallel layers inputs must have the same dimension!\nConflict between {} and {}".format(self.out_layers[0], l)
 
@@ -205,7 +205,7 @@ class Parallel(Layer):
         Returns the training expressions of all contained layers, since each
         contained layer contributes to an output.
         """
-        return collect(l.train_expr(X, **kw) for l in self.layers)
+        return _u.collect(l.train_expr(X, **kw) for l in self.layers)
 
 
     def pred_expr(self, X):
@@ -213,7 +213,7 @@ class Parallel(Layer):
         Returns the prediction expressions of all contained layers, since each
         contained layer contributes to an output.
         """
-        return collect(l.pred_expr(X) for l in self.layers)
+        return _u.collect(l.pred_expr(X) for l in self.layers)
 
 
     def ensembler(self):
@@ -221,7 +221,7 @@ class Parallel(Layer):
         Returns the ensemblers of all contained layers, since each contained
         layer contributes to an output.
         """
-        return collect(l.ensembler() for l in self.layers)
+        return _u.collect(l.ensembler() for l in self.layers)
 
 
     def batch_agg(self):
@@ -229,4 +229,4 @@ class Parallel(Layer):
         Returns the batch aggregators of all contained layers, since each
         contained layer contributes to an output.
         """
-        return collect(l.batch_agg() for l in self.layers)
+        return _u.collect(l.batch_agg() for l in self.layers)

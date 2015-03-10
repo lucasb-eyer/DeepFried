@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from DeepFried.util import collect, tuplize
+import DeepFried.util as _u
 
 import numpy as _np
 import theano.tensor as _T
@@ -89,11 +89,11 @@ class MultiCost(Cost):
 
     def make_target(self, *names):
         if len(names) == 0:
-            return collect(c.make_target() for c in self.costs)
+            return _u.collect(c.make_target() for c in self.costs)
         else:
             # TODO: How to distribute the names to the costs otherwise!?
             assert len(names) == len(self.costs), "For now, there can only be one explicitly named target per single cost in `{}`. Please file an issue with your use-case.".format(type(self).__name__)
-            return collect(c.make_target(n) for c, n in zip(self.costs, names))
+            return _u.collect(c.make_target(n) for c, n in zip(self.costs, names))
 
 
     def out_expr(self, model, outputs, targets):
@@ -107,7 +107,7 @@ class MultiCost(Cost):
             # Nasty trick to figure out how many targets this cost eats and only
             # eat that many. This allows for zero-target costs such as weight
             # decays to be added into the mix.
-            n = len(tuplize(c.make_target(), tuplize_none=True))
+            n = len(_u.tuplize(c.make_target(), tuplize_none=True))
             tot += w*c.out_expr(model, list(_islice(outs, n)), list(_islice(tgts, n)))
 
         return tot

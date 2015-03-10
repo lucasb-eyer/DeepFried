@@ -3,10 +3,9 @@
 import numpy as _np
 import theano as _th
 import theano.tensor as _T
-import numbers
+import numbers as _num
 
-from DeepFried.util import tuplize as _tuplize, maybetuple as _maybetuple
-from DeepFried.util import check_random_state as _check_random_state
+import DeepFried.util as _u
 
 
 class Layer(object):
@@ -136,7 +135,7 @@ class Layer(object):
             init = lambda shape, *a, **kw: _np.full(shape, _np.nan, dtype=_th.config.floatX)
         elif isinstance(val, _np.ndarray):
             init = lambda *a, **kw: val
-        elif isinstance(val, numbers.Real):
+        elif isinstance(val, _num.Real):
             init = lambda *a, **kw: _np.full(shape, val, dtype=_th.config.floatX)
         elif isinstance(val, _T.TensorVariable):
             # When using an existing theano shared variable, don't store nay
@@ -160,7 +159,7 @@ class Layer(object):
         dict and will be passed as additional keyword arguments to the
         initializer.
         """
-        rng = _check_random_state(rng)
+        rng = _u.check_random_state(rng)
 
         for p in self.params:
             if p not in self.inits:
@@ -251,8 +250,8 @@ class FullyConnected(Layer):
         """
         super(FullyConnected, self).__init__()
 
-        self.inshape = _tuplize(inshape)
-        self.outshape = _tuplize(outshape)
+        self.inshape = _u.tuplize(inshape)
+        self.outshape = _u.tuplize(outshape)
 
         fan_in = _np.prod(self.inshape)
         fan_out = _np.prod(self.outshape)
@@ -479,7 +478,7 @@ class Dropout(Layer):
 
 
     def reinit(self, rng):
-        rng = _check_random_state(rng)
+        rng = _u.check_random_state(rng)
         self.seed = rng.randint(2**31)
         self.srng = _T.shared_randomstreams.RandomStreams(self.seed)
 
@@ -488,14 +487,14 @@ class Dropout(Layer):
         if self.srng is None:
             raise RuntimeError("You forgot to initialize the {} layer!".format(type(self).__name__))
 
-        return _maybetuple(x * self.srng.binomial(n=1, p=self.p_keep,
-                                                  size=x.shape,
-                                                  dtype=x.dtype)
-                           for x in _tuplize(Xs))
+        return _u.maybetuple(x * self.srng.binomial(n=1, p=self.p_keep,
+                                                    size=x.shape,
+                                                    dtype=x.dtype)
+                           for x in _u.tuplize(Xs))
 
 
     def pred_expr(self, *Xs):
-        return _maybetuple(x * self.p_keep for x in _tuplize(Xs))
+        return _u.maybetuple(x * self.p_keep for x in _u.tuplize(Xs))
 
 
 class Conv2D(Layer):
@@ -545,7 +544,7 @@ class Conv2D(Layer):
         super(Conv2D, self).__init__()
 
         # Allow for specifying the conv shape as a single number if square.
-        if isinstance(convshape, numbers.Integral):
+        if isinstance(convshape, _num.Integral):
             convshape = (convshape, convshape)
 
         self.border_mode = border_mode
@@ -605,11 +604,11 @@ class SpatialMaxPool(Layer):
         """
         super(SpatialMaxPool, self).__init__()
 
-        if isinstance(size, numbers.Integral):
+        if isinstance(size, _num.Integral):
             size = (size, size)
         self.size = size
 
-        if isinstance(stride, numbers.Integral):
+        if isinstance(stride, _num.Integral):
             stride = (stride, stride)
         self.stride = stride
 

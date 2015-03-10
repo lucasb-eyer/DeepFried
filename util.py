@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import numpy as _np
-import numbers
+import numbers as _num
 
 
 def tuplize(what, lists=True, tuplize_none=False):
@@ -79,7 +79,7 @@ def check_random_state(seed):
     if seed is None or seed is _np.random:
         return _np.random.mtrand._rand
 
-    if isinstance(seed, (numbers.Integral, _np.integer)):
+    if isinstance(seed, (_num.Integral, _np.integer)):
         return _np.random.RandomState(seed)
 
     if isinstance(seed, _np.random.RandomState):

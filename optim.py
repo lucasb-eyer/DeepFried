@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from DeepFried.util import batched, tuplize, maybetuple
+import DeepFried.util as _u
 
 import numpy as _np
 import theano as _th
@@ -51,12 +51,12 @@ class StreaMiniOptimizer(object):
         self.cost = cost
         self.batchsize = batchsize
 
-        self.Xs = tuplize(self.model.make_inputs(*Xnames))
-        self.targets = tuplize(self.cost.make_target(*tnames))
-        self.xtras = tuplize(extra_outs, tuplize_none=True)
+        self.Xs = _u.tuplize(self.model.make_inputs(*Xnames))
+        self.targets = _u.tuplize(self.cost.make_target(*tnames))
+        self.xtras = _u.tuplize(extra_outs, tuplize_none=True)
 
         self.xtra_updates = []
-        train_expr = tuplize(self.model.train_expr(*self.Xs, updates=self.xtra_updates))
+        train_expr = _u.tuplize(self.model.train_expr(*self.Xs, updates=self.xtra_updates))
         self.cost_expr = self.cost.out_expr(self.model, train_expr, self.targets)
         self.outs = (self.cost_expr,) + tuple(
             x.out_expr(self.model, train_expr, self.targets) for x in self.xtras
@@ -68,8 +68,8 @@ class StreaMiniOptimizer(object):
         To be used by specializations only.
         """
         self.fn_train = _th.function(
-            inputs=self.Xs + self.targets + tuplize(extra_in, tuplize_none=True),
-            outputs=self.outs + tuplize(extra_out, tuplize_none=True),
+            inputs=self.Xs + self.targets + _u.tuplize(extra_in, tuplize_none=True),
+            outputs=self.outs + _u.tuplize(extra_out, tuplize_none=True),
             updates=updates + self.xtra_updates,
             name=name
         )
@@ -98,8 +98,8 @@ class StreaMiniOptimizer(object):
         xtras = []
 
         # Sanitize inputs for more flexibility.
-        Xs = tuplize(X)
-        ts = tuplize(t)
+        Xs = _u.tuplize(X)
+        ts = _u.tuplize(t)
         bs = batchsize or self.batchsize
 
         assert all(X.shape[0] == Xs[0].shape[0] for X in Xs), "All inputs to fit_epoch should contain the same amount of datapoints."
@@ -107,15 +107,15 @@ class StreaMiniOptimizer(object):
 
         # Go through the training in minibatches. Note that the last batch
         # may be smaller than the batchsize.
-        for bxs, bts in zip(batched(bs, *Xs), batched(bs, *ts)):
+        for bxs, bts in zip(_u.batched(bs, *Xs), _u.batched(bs, *ts)):
             # Possibly need to re-tuplize them because `batched` tries to be
             # smart and not return a tuple if batching a single array.
-            bxs = tuplize(bxs)
-            bts = tuplize(bts)
+            bxs = _u.tuplize(bxs)
+            bts = _u.tuplize(bts)
 
             # Potentially generate a new augmentation on-the-fly.
             if aug is not None:
-                bxs = tuplize(aug.augbatch_train(*bxs+bts))
+                bxs = _u.tuplize(aug.augbatch_train(*bxs+bts))
 
             self.model.pre_minibatch()
 
@@ -132,7 +132,7 @@ class StreaMiniOptimizer(object):
         self.model.post_epoch()
 
         # Average the stats over the batches.
-        return maybetuple((self.cost.aggregate_batches(costs),)
+        return _u.maybetuple((self.cost.aggregate_batches(costs),)
                         + tuple(x.aggregate_batches(b) for x, b in zip(self.xtras, zip(*xtras))))
         # The above zip transposes from minibatches of extras to extras of minibatches.
 
