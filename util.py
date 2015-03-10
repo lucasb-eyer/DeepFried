@@ -38,7 +38,7 @@ def collect(what, drop_nones=True):
     return sum((tuplize(w, tuplize_none=drop_nones) for w in what), tuple())
 
 
-def batched(batchsize, *args):
+def batched(batchsize, *args, shuf=False, shuf_rng=None):
     """
     A generator function which goes through all of `args` together,
     but in batches of size `batchsize` along the first dimension.
@@ -56,14 +56,19 @@ def batched(batchsize, *args):
     # Assumption: all args have the same 1st dimension as the first one.
     assert(all(x.shape[0] == n for x in args))
 
+    indices = _np.arange(n)
+    if shuf:
+        rng = check_random_state(shuf_rng)
+        rng.shuffle(indices)
+
     # First, go through all full batches.
     for i in range(n // batchsize):
-        yield maybetuple(x[i*batchsize:(i+1)*batchsize] for x in args)
+        yield maybetuple(x[indices[i*batchsize:(i+1)*batchsize]] for x in args)
 
     # And now maybe return the last batch.
     rest = n % batchsize
     if rest != 0:
-        yield maybetuple(x[-rest:] for x in args)
+        yield maybetuple(x[indices[-rest:]] for x in args)
 
 
 # Blatantly "inspired" by sklearn, for when that's not available.

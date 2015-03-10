@@ -75,7 +75,7 @@ class StreaMiniOptimizer(object):
         )
 
 
-    def fit_epoch(self, X, t, aug=None, batchsize=None, shuf=False, **kwargs):
+    def fit_epoch(self, X, t, aug=None, batchsize=None, shuf=False, shuf_rng=None, **kwargs):
         """
         Trains the model for one full epoch by iterating through minibatches.
 
@@ -88,6 +88,8 @@ class StreaMiniOptimizer(object):
         - `aug`: An optional data augmentation pipeline that can transform each
                  sample in the minibatch individually.
         - `batchsize`: Optionally override the batchsize given at construction.
+        - `shuf`: If true, go through `X` and `t` in lockstep-random order.
+        - `shuf_rng`: A rng or seed to use for shuffling.
 
         Any remaining arguments will be passed on to the optimization function;
         this can be used to pass values such as learning-rate, momentum etc.
@@ -101,13 +103,21 @@ class StreaMiniOptimizer(object):
         Xs = _u.tuplize(X)
         ts = _u.tuplize(t)
         bs = batchsize or self.batchsize
+        N = Xs[0].shape[0]
 
-        assert all(X.shape[0] == Xs[0].shape[0] for X in Xs), "All inputs to fit_epoch should contain the same amount of datapoints."
-        assert all(t.shape[0] == ts[0].shape[0] for t in ts), "All targets to fit_epoch should contain the same amount of datapoints."
+        assert all(X.shape[0] == N for X in Xs), "All inputs to fit_epoch should contain the same amount of datapoints."
+        assert all(t.shape[0] == N for t in ts), "All targets to fit_epoch should contain the same amount of datapoints."
+
+        # Keyword arguments for `batched`, for conciseness.
+        bxkw, btkw = dict(shuf=shuf), dict(shuf=shuf)
+        if shuf:
+            common_seed = _u.check_random_state(shuf_rng).randint(2**31)
+            bxkw['shuf_rng'] = _np.random.RandomState(common_seed)
+            btkw['shuf_rng'] = _np.random.RandomState(common_seed)
 
         # Go through the training in minibatches. Note that the last batch
         # may be smaller than the batchsize.
-        for bxs, bts in zip(_u.batched(bs, *Xs), _u.batched(bs, *ts)):
+        for bxs, bts in zip(_u.batched(bs, *Xs, **bxkw), _u.batched(bs, *ts, **btkw)):
             # Possibly need to re-tuplize them because `batched` tries to be
             # smart and not return a tuple if batching a single array.
             bxs = _u.tuplize(bxs)
