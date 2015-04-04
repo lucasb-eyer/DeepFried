@@ -4,8 +4,14 @@ import numpy as _np
 import theano as _th
 import theano.tensor as _T
 import numbers as _num
+import logging as _log
 
 import DeepFried.util as _u
+
+
+def _info(msg, *a, **kw):
+    log = _log.getLogger(__name__)
+    log.info(msg.format(*a, **kw))
 
 
 class Layer(object):
@@ -316,6 +322,7 @@ class Softmax(Layer):
     def weightinitializer(self):
         """ See the documentation of `Layer`. """
         def init(shape, rng, *a, **kw):
+            _info("Init {} with zeros", shape)
             return _np.zeros(shape)
         return init
 
@@ -376,20 +383,24 @@ class ReLU(Layer):
         if self.init == 'Xavier':
             def init(shape, rng, fan_in, fan_out):
                 fan_mean = (fan_in+fan_out)/2
+                _info("Init {} with u[{}]", shape, _np.sqrt(6/fan_mean))
                 return rng.uniform(-_np.sqrt(6/fan_mean), _np.sqrt(6/fan_mean), shape)
             return init
         elif self.init == 'XavierN':
             def init(shape, rng, fan_in, fan_out):
                 fan_mean = (fan_in+fan_out)/2
+                _info("Init {} with {}*std_normal", shape, _np.sqrt(1/fan_mean))
                 return _np.sqrt(1/fan_mean)*rng.standard_normal(shape)
             return init
         elif self.init == 'PReLU':
             def init(shape, rng, fan_in, fan_out):
                 fan_mean = (fan_in+fan_out)/2
+                _info("Init {} with {}*std_normal", shape, _np.sqrt(2/fan_mean))
                 return _np.sqrt(2/fan_mean)*rng.standard_normal(shape)
             return init
         else:
             def init(shape, rng, *a, **kw):
+                _info("Init {} with {}*std_normal", shape, self.init)
                 return self.init*rng.standard_normal(shape)
             return init
 
@@ -438,15 +449,18 @@ class Tanh(Layer):
         if self.init == 'Xavier':
             def init(shape, rng, fan_in, fan_out):
                 fan_mean = (fan_in+fan_out)/2
+                _info("Init {} with u[{}]", shape, _np.sqrt(6/fan_mean))
                 return rng.uniform(-_np.sqrt(6/fan_mean), _np.sqrt(6/fan_mean), shape)
             return init
         elif self.init == 'XavierN':
             def init(shape, rng, fan_in, fan_out):
                 fan_mean = (fan_in+fan_out)/2
+                _info("Init {} with {}*std_normal", shape, _np.sqrt(1/fan_mean))
                 return _np.sqrt(1/fan_mean)*rng.standard_normal(shape)
             return init
         else:
             def init(shape, rng, *a, **kw):
+                _info("Init {} with {}*std_normal", shape, self.init)
                 return self.init*rng.standard_normal(shape)
             return init
 

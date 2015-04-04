@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 
+import logging as _log
+
 from DeepFried.layers import Layer as _Layer
 import DeepFried.util as _u
+
+
+def _info(msg, *a, **kw):
+    log = _log.getLogger(__name__)
+    log.info(msg.format(*a, **kw))
 
 
 def _mkproxy(self, fn):
@@ -70,11 +77,11 @@ class Sequence(_Layer):
 
         def registerinit(l):
             if hasattr(layer, "weightinitializer"):
-                #print(layer, "inits W of", l)
+                _info("{} inits W of {}", layer, l)
                 for W in l.Ws:
                     l.inits[W] = layer.weightinitializer()
             if hasattr(layer, "biasinitializer"):
-                #print(layer, "inits b of", l)
+                _info("{} inits b of {}", layer, l)
                 for b in l.bs:
                     l.inits[b] = layer.biasinitializer()
 
