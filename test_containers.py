@@ -108,3 +108,58 @@ class TestParallel(unittest.TestCase):
 
         self.assertTrue(all(np.all(X == self.X) for X in outt))
         self.assertTrue(all(np.all(X == self.X) for X in outp))
+
+
+class TestContainerCombos(unittest.TestCase):
+
+
+    def setUp(self):
+        self.X = np.random.randn(200, 30).astype(floatX)
+
+
+    def test_nested_sequences(self):
+        foo = c.Sequence(c.Sequence(t.Identity()))
+
+        npt.assert_array_equal(t.mk_train_output_fn(foo)(self.X), self.X)
+        npt.assert_array_equal(t.mk_pred_output_fn(foo)(self.X), self.X)
+
+
+        foo = c.Sequence(c.Sequence(c.Sequence(t.Identity())))
+
+        npt.assert_array_equal(t.mk_train_output_fn(foo)(self.X), self.X)
+        npt.assert_array_equal(t.mk_pred_output_fn(foo)(self.X), self.X)
+
+
+    def test_mix(self):
+        foo = c.Parallel(c.Sequence(t.Identity()))
+
+        npt.assert_array_equal(t.mk_train_output_fn(foo)(self.X), self.X)
+        npt.assert_array_equal(t.mk_pred_output_fn(foo)(self.X), self.X)
+
+
+        foo = c.Sequence(c.Parallel(c.Sequence(t.Identity())))
+
+        npt.assert_array_equal(t.mk_train_output_fn(foo)(self.X), self.X)
+        npt.assert_array_equal(t.mk_pred_output_fn(foo)(self.X), self.X)
+
+
+    def test_deeper_mix(self):
+        foo = c.Sequence(
+            t.Identity(),
+            c.Parallel(
+                t.Identity(),
+                c.Sequence(
+                    t.Identity(),
+                    t.Identity(),
+                )
+            )
+        )
+
+        outt = t.mk_train_output_fn(foo)(self.X)
+        outp = t.mk_pred_output_fn(foo)(self.X)
+
+        self.assertEqual(len(outt), 2)
+        self.assertEqual(len(outp), 2)
+
+        self.assertTrue(all(np.all(X == self.X) for X in outt))
+        self.assertTrue(all(np.all(X == self.X) for X in outp))
