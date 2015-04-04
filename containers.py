@@ -43,7 +43,6 @@ class Sequence(_Layer):
             self.append(l)
 
         # And forward a whole bunch of functions.
-        self.reinit =_mkproxy(self, 'reinit')
         self.pre_epoch =_mkproxy(self, 'pre_epoch')
         self.pre_minibatch =_mkproxy(self, 'pre_minibatch')
         self.post_minibatch =_mkproxy(self, 'post_minibatch')
@@ -144,6 +143,17 @@ class Sequence(_Layer):
         return self.layers[-1].batch_agg()
 
 
+    def reinit(self, rng):
+        """
+        If `rng` is a seed number, we need to convert it into an rng here since
+        if we just pass it along, every layer will generate its own rng with
+        the same seed and thus have the same initialization!
+        """
+        rng = _u.check_random_state(rng)
+        for l in self.layers:
+            l.reinit(rng)
+
+
 class Parallel(_Layer):
 
     def __init__(self, *layers):
@@ -169,7 +179,6 @@ class Parallel(_Layer):
             self.append(l)
 
         # And forward a whole bunch of functions.
-        self.reinit =_mkproxy(self, 'reinit')
         self.pre_epoch =_mkproxy(self, 'pre_epoch')
         self.pre_minibatch =_mkproxy(self, 'pre_minibatch')
         self.post_minibatch =_mkproxy(self, 'post_minibatch')
@@ -237,3 +246,14 @@ class Parallel(_Layer):
         contained layer contributes to an output.
         """
         return _u.collect(l.batch_agg() for l in self.layers)
+
+
+    def reinit(self, rng):
+        """
+        If `rng` is a seed number, we need to convert it into an rng here since
+        if we just pass it along, every layer will generate its own rng with
+        the same seed and thus have the same initialization!
+        """
+        rng = _u.check_random_state(rng)
+        for l in self.layers:
+            l.reinit(rng)
