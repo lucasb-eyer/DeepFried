@@ -75,6 +75,14 @@ class StreaMiniOptimizer(object):
         )
 
 
+    def reinit(self):
+        """
+        This will reinitialize any state (such as momentum) that may be kept by
+        this optimizer.
+        """
+        pass
+
+
     def fit_epoch(self, X, t, aug=None, batchsize=None, shuf=False, shuf_rng=None, **kwargs):
         """
         Trains the model for one full epoch by iterating through minibatches.
@@ -245,6 +253,11 @@ class StreaMiniMomentum(StreaMiniOptimizer):
         )
 
 
+    def reinit(self):
+        for sh_v in self.sh_v:
+            sh_v.set_value(_np.zeros_like(sh_v.get_value()))
+
+
 class StreaMiniAdaGrad(StreaMiniOptimizer):
     """
     Implements Duchi's "Adaptive Subgradient" method, aka AdaGrad.
@@ -285,6 +298,7 @@ class StreaMiniAdaGrad(StreaMiniOptimizer):
         # read the original paper!
         # Edit: RMSProp fixes exactly that.
         # Edit: Matt Zeiler seems to agree cf. AdaDelta.
+        self.eps = eps
         self.sh_g2 = [
             _th.shared(_np.full_like(p.get_value(), eps), broadcastable=p.broadcastable, name='g2_'+p.name)
             for p in model.params
@@ -305,6 +319,11 @@ class StreaMiniAdaGrad(StreaMiniOptimizer):
             updates,
             extra_in=self.sh_learningrate
         )
+
+
+    def reinit(self):
+        for sh_g2 in self.sh_g2:
+            sh_g2.set_value(_np.full_like(sh_g2.get_value(), self.eps))
 
 
 class StreaMiniRMSProp(StreaMiniOptimizer):
@@ -360,6 +379,11 @@ class StreaMiniRMSProp(StreaMiniOptimizer):
             updates,
             extra_in=(self.sh_learningrate, _th.Param(self.sh_rho, rho))
         )
+
+
+    def reinit(self):
+        for sh_g2 in self.sh_g2:
+            sh_g2.set_value(_np.zeros_like(sh_g2.get_value()))
 
 
 class StreaMiniAdaDelta(StreaMiniOptimizer):
@@ -430,3 +454,10 @@ class StreaMiniAdaDelta(StreaMiniOptimizer):
             updates,
             extra_in=_th.Param(self.sh_rho, rho)
         )
+
+
+    def reinit(self):
+        for sh_g2 in self.sh_g2:
+            sh_g2.set_value(_np.zeros_like(sh_g2.get_value()))
+        for sh_delta2 in self.sh_delta2:
+            sh_delta2.set_value(_np.zeros_like(sh_delta2.get_value()))
