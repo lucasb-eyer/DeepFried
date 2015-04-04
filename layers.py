@@ -291,7 +291,7 @@ class FullyConnected(Layer):
         # And for non-1D outputs, add a reshaping step for convenience.
         if len(self.outshape) > 1:
             # (Again, don't forget the first dimension is the minibatch!)
-            out.reshape((batchsize,) + self.outshape)
+            out = out.reshape((batchsize,) + self.outshape)
 
         return out
 
@@ -575,7 +575,7 @@ class Conv2D(Layer):
 
         if bias:
             self.b_shape = (nconv,)
-            self.b = self.newbias("b_fc", self.b_shape, b)
+            self.b = self.newbias("b_conv", self.b_shape, b)
 
 
     def make_inputs(self, name="Xin"):
