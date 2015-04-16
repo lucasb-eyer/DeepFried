@@ -383,20 +383,23 @@ class ReLU(Layer):
         if self.init == 'Xavier':
             def init(shape, rng, fan_in, fan_out):
                 fan_mean = (fan_in+fan_out)/2
-                _info("Init {} with u[{}]", shape, _np.sqrt(6/fan_mean))
-                return rng.uniform(-_np.sqrt(6/fan_mean), _np.sqrt(6/fan_mean), shape)
+                bound = _np.sqrt(6/fan_mean)
+                _info("Init {} with u[{}]", shape, bound)
+                return rng.uniform(-bound, bound, shape)
             return init
         elif self.init == 'XavierN':
             def init(shape, rng, fan_in, fan_out):
                 fan_mean = (fan_in+fan_out)/2
-                _info("Init {} with {}*std_normal", shape, _np.sqrt(1/fan_mean))
-                return _np.sqrt(1/fan_mean)*rng.standard_normal(shape)
+                std = _np.sqrt(1/fan_mean)
+                _info("Init {} with {}*std_normal", shape, std)
+                return std*rng.standard_normal(shape)
             return init
         elif self.init == 'PReLU':
             def init(shape, rng, fan_in, fan_out):
                 fan_mean = (fan_in+fan_out)/2
-                _info("Init {} with {}*std_normal", shape, _np.sqrt(2/fan_mean))
-                return _np.sqrt(2/fan_mean)*rng.standard_normal(shape)
+                std = _np.sqrt(2/fan_mean)
+                _info("Init {} with {}*std_normal", shape, std)
+                return std*rng.standard_normal(shape)
             return init
         else:
             def init(shape, rng, *a, **kw):
@@ -449,14 +452,16 @@ class Tanh(Layer):
         if self.init == 'Xavier':
             def init(shape, rng, fan_in, fan_out):
                 fan_mean = (fan_in+fan_out)/2
-                _info("Init {} with u[{}]", shape, _np.sqrt(6/fan_mean))
-                return rng.uniform(-_np.sqrt(6/fan_mean), _np.sqrt(6/fan_mean), shape)
+                bound = _np.sqrt(6/fan_mean)
+                _info("Init {} with u[{}]", shape, bound)
+                return rng.uniform(-bound, bound, shape)
             return init
         elif self.init == 'XavierN':
             def init(shape, rng, fan_in, fan_out):
                 fan_mean = (fan_in+fan_out)/2
-                _info("Init {} with {}*std_normal", shape, _np.sqrt(1/fan_mean))
-                return _np.sqrt(1/fan_mean)*rng.standard_normal(shape)
+                std = _np.sqrt(1/fan_mean)
+                _info("Init {} with {}*std_normal", shape, std)
+                return std*rng.standard_normal(shape)
             return init
         else:
             def init(shape, rng, *a, **kw):
