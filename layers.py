@@ -477,6 +477,72 @@ class Tanh(Layer):
         return init
 
 
+class Sigmoid(Layer):
+    """
+    Difficult, sigmoid 1/(1+exp(-x)) nonlinearity layer of oldschool nnets.
+    """
+
+
+    def __init__(self, init='Xavier', alt=None):
+        """
+        Creates a Sigmoid layer which computes the elementwise application of the
+        sigmoid function:
+
+            out = 1/(1+exp(-X))
+
+        - `init`: The initialization technique to use for initializing another
+                  layer's weights. Currently available techniques are:
+            - `'Xavier'`: Uniform-random Xavier initialization from [1].
+            - A number: Standard deviation (sigma) of the normal distribution
+                        to sample from.
+        - `alt`: Whether to use an alternative sigmoid-function, one of:
+            - `None`: Use the actual sigmoid function.
+            - `ultrafast`: Use Theano's `ultra_fast_sigmoid` function. It's a
+                           piecewise-linear approximation, ~2-3x faster.
+            - `hard`: Use Theano's `hard_sigmoid` function. It's just like a
+                      ReLU capped at 1 and centered around 0.
+
+        1: Understanding the difficulty of training deep feedforward neural networks.
+        """
+        super(Sigmoid, self).__init__()
+        self.init = init
+        if alt is None:
+            self.fn = _T.nnet.sigmoid
+        elif alt == "ultrafast":
+            self.fn = _T.nnet.ultra_fast_sigmoid
+        elif alt == "hard":
+            self.fn = _T.nnet.hard_sigmoid
+        else:
+            raise ValueError("Unknown alternative sigmoid formulation: " + repr(alt))
+
+
+    def train_expr(self, X, **kw):
+        return self.fn(X)
+
+
+    def weightinitializer(self):
+        """ See the documentation of `Layer`. """
+        if self.init == 'Xavier':
+            def init(shape, rng, fan_in, fan_out):
+                fan_mean = (fan_in+fan_out)/2
+                bound = 4*_np.sqrt(6/fan_mean)
+                _info("Init {} with u[{}]", shape, bound)
+                return rng.uniform(-bound, bound, shape)
+            return init
+        else:
+            def init(shape, rng, *a, **kw):
+                _info("Init {} with {}*std_normal", shape, self.init)
+                return self.init*rng.standard_normal(shape)
+            return init
+
+
+    def biasinitializer(self):
+        """ See the documentation of `Layer`. """
+        def init(shape, *a, **kw):
+            return _np.zeros(shape)
+        return init
+
+
 class Dropout(Layer):
     """
     See "Improving neural networks by preventing co-adaptation of feature detectors"
