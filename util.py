@@ -25,10 +25,11 @@ def tuplize(what, lists=True, tuplize_none=False):
 
 def maybetuple(what):
     """
-    Transforms `what` into a tuple, except if it's of length one.
+    Transforms `what` into a tuple, except if it's of length one, then it's
+    returned as-is, or if it's of length zero, then `None` is returned.
     """
     t = tuple(what)
-    return t if len(t) > 1 else t[0]
+    return t if len(t) > 1 else t[0] if len(t) == 1 else None
 
 
 def collect(what, drop_nones=True):
