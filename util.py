@@ -38,7 +38,7 @@ def collect(what, drop_nones=True):
     return sum((tuplize(w, tuplize_none=drop_nones) for w in what), tuple())
 
 
-def batched(batchsize, *args, shuf=False, shuf_rng=None):
+def batched(batchsize, *args, shuf=False):
     """
     A generator function which goes through all of `args` together,
     but in batches of size `batchsize` along the first dimension.
@@ -57,8 +57,8 @@ def batched(batchsize, *args, shuf=False, shuf_rng=None):
     assert(all(x.shape[0] == n for x in args))
 
     indices = _np.arange(n)
-    if shuf:
-        rng = check_random_state(shuf_rng)
+    if shuf is not False:
+        rng = check_random_state(shuf)
         rng.shuffle(indices)
 
     # First, go through all full batches.

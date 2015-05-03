@@ -83,7 +83,7 @@ class StreaMiniOptimizer(object):
         pass
 
 
-    def fit_epoch(self, X, t, aug=None, batchsize=None, shuf=False, shuf_rng=None, **kwargs):
+    def fit_epoch(self, X, t, aug=None, batchsize=None, shuf=False, **kwargs):
         """
         Trains the model for one full epoch by iterating through minibatches.
 
@@ -96,8 +96,8 @@ class StreaMiniOptimizer(object):
         - `aug`: An optional data augmentation pipeline that can transform each
                  sample in the minibatch individually.
         - `batchsize`: Optionally override the batchsize given at construction.
-        - `shuf`: If true, go through `X` and `t` in lockstep-random order.
-        - `shuf_rng`: A rng or seed to use for shuffling.
+        - `shuf`: If not False, go through `X` and `t` in lockstep-random order.
+                  Use `shuf` as rng or seed for the shuffling.
 
         Any remaining arguments will be passed on to the optimization function;
         this can be used to pass values such as learning-rate, momentum etc.
@@ -117,11 +117,12 @@ class StreaMiniOptimizer(object):
         assert all(t.shape[0] == N for t in ts), "All targets to fit_epoch should contain the same amount of datapoints."
 
         # Keyword arguments for `batched`, for conciseness.
-        bxkw, btkw = dict(shuf=shuf), dict(shuf=shuf)
-        if shuf:
-            common_seed = _u.check_random_state(shuf_rng).randint(2**31)
-            bxkw['shuf_rng'] = _np.random.RandomState(common_seed)
-            btkw['shuf_rng'] = _np.random.RandomState(common_seed)
+        if shuf is False:
+            bxkw = btkw = {}
+        else:
+            common_seed = _u.check_random_state(shuf).randint(2**31)
+            bxkw = dict(shuf=_np.random.RandomState(common_seed))
+            btkw = dict(shuf=_np.random.RandomState(common_seed))
 
         # Go through the training in minibatches. Note that the last batch
         # may be smaller than the batchsize.
