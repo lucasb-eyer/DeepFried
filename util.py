@@ -39,7 +39,7 @@ def collect(what, drop_nones=True):
     return sum((tuplize(w, tuplize_none=drop_nones) for w in what), tuple())
 
 
-def batched(batchsize, *args, shuf=False):
+def batched(batchsize, *args, shuf=False, droplast=False):
     """
     A generator function which goes through all of `args` together,
     but in batches of size `batchsize` along the first dimension.
@@ -68,7 +68,7 @@ def batched(batchsize, *args, shuf=False):
 
     # And now maybe return the last batch.
     rest = n % batchsize
-    if rest != 0:
+    if rest != 0 and not droplast:
         yield maybetuple(x[indices[-rest:]] for x in args)
 
 
