@@ -651,7 +651,10 @@ class Conv2D(Layer):
 
     def make_inputs(self, name="Xin"):
         if self.imshape is None:
-            return _T.tensor4(name)
+            if self.imdepth > 1:
+                return _T.tensor4(name)
+            else:
+                return _T.tensor3(name)
         else:
             return _T.matrix(name)
 
@@ -659,6 +662,8 @@ class Conv2D(Layer):
     def train_expr(self, X, **kw):
         if self.imshape is not None:
             X = X.reshape((X.shape[0], self.imdepth) + self.imshape)
+        elif self.imdepth == 1:
+            X = X.reshape((X.shape[0], 1, X.shape[1], X.shape[2]))
 
         out = _T.nnet.conv.conv2d(X, self.W,
             image_shape=(None, self.imdepth) + (self.imshape or (None, None)),
