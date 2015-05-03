@@ -6,37 +6,35 @@ import itertools as _it
 # TODO: Implement in terms of skimage?
 import scipy.ndimage.interpolation as _spint
 
+import DeepFried.util as _dfu
+
 
 class AugmentationPipeline(object):
     """
     A utility-class that keeps track of various augmenters, the image shape,
     and applies them to batches.
     """
-    def __init__(self, shape, Xtr, ytr, *augmenters):
+    def __init__(self, Xtr, ytr, *augmenters):
         """
-        `shape` is the actual shape of the image, e.g. (28,28) for MNIST.
+        - `Xtr` and `ytr` are the training dataset, as NxD and N arrays.
 
-        `Xtr` and `ytr` are the training dataset, as NxD and N arrays.
-
-        `augmenters` is a list of instances of implementations of `Augmenter`.
+        - `augmenters` is a list of instances of implementations of `Augmenter`.
         """
-        self.imshape = shape
         self.augmenters = list(augmenters)
 
         for a in self.augmenters:
             a.fit(Xtr, ytr)
 
 
-    def outshape(self, flat=False):
+    def outshape(self, inshape):
         """
         Compute the shape of the result of passing an image of `inshape`
-        through my augmentations serially. Optionally, the shape is then
-        `flat`tened.
+        through my augmentations serially.
         """
-        sh = self.imshape
+        sh = inshape
         for a in self.augmenters:
             sh = a.outshape(sh)
-        return sh if not flat else _np.product(sh)
+        return sh
 
 
     def _pred_indices(self, fast):
@@ -50,15 +48,11 @@ class AugmentationPipeline(object):
 
         `image` may be either 2D or flattened 1D.
         """
-        img = image.reshape(self.imshape)
 
+        img = image
         for a in self.augmenters:
-            img = a.transform_train(img, *targets)
-
-        if len(image.shape) == 2:
-            return img
-        else:
-            return img.flatten()
+            img, targets = a.transform_train(img, *targets)
+        return img, targets
 
 
     def augimg_pred(self, image, fast=False):
@@ -69,55 +63,53 @@ class AugmentationPipeline(object):
 
         `image` may be either 2D or flattened 1D.
         """
+
         # Go through all possible combinations of transforms we get from the
         # augmenters for prediction.
         for iaug in self._pred_indices(fast):
-            img = image.reshape(self.imshape)
+            img = image
             for ia, a in zip(iaug, self.augmenters):
                 img = a.transform_pred(img, ia, fast)
-
-            if len(image.shape) == 2:
-                yield img
-            else:
-                yield img.flatten()
+            yield img
 
 
-    def augbatch_train(self, images, *targets):
+    def augbatch_train(self, batch, *targets):
         """
-        Returns an "augmented" copy of the given batch of `images`.
+        Returns an "augmented" copy of the given `batch` of images.
         This one is intendend for training, it's stochastic.
 
-        `images` has shape BxD where B is the number of samples in the batch
-        and D is the dimensionality of a sample (768 for MNIST).
+        `batch` has shape BxD where B is the number of samples in the batch and
+        D is the dimensionality of a sample (784 or 28,28 or 1,28,28 for MNIST).
         """
-        B = images.shape[0]
+        B = batch.shape[0]
 
         # Reserve space for the output
-        out = _np.empty((B, self.outshape(flat=True)), dtype=images.dtype)
+        out = _np.empty((B,) + self.outshape(batch.shape[1:]), dtype=batch.dtype)
+        outtgts = tuple(_np.empty_like(t) for t in targets)
 
         # Transform the images, one by one, independently.
         # Otherwise, the whole batch would be correlated.
         for i in range(B):
-            img = images[i].reshape(self.imshape)
-            for a in self.augmenters:
-                img = a.transform_train(img, *targets)
-            out[i,:] = img.flat
-        return out
+            img, tgts = self.augimg_train(batch[i], *(t[i] for t in targets))
+            out[i] = img
+            for ot, t in zip(outtgts, tgts):
+                ot[i] = t
+        return out, outtgts
 
 
-    def augbatch_pred(self, images, fast=False):
+    def augbatch_pred(self, batch, fast=False):
         """
-        Yields through "augmented" copies of the given batch of `images`.
+        Yields through "augmented" copies of the given `batch` of images.
         This one is intended for testing, it will always yield the same sequence
         of augmentations.
 
-        `images` has shape BxD where B is the number of samples in the batch and
-        D is the dimensionality of a sample (768 for MNIST).
+        `batch` has shape BxD where B is the number of samples in the batch and
+        D is the dimensionality of a sample (768 or 28,28 or 1,28,28 for MNIST).
         """
-        B = images.shape[0]
+        B = batch.shape[0]
 
         # Reserve space for the output
-        out = _np.empty((B, self.outshape(flat=True)), dtype=images.dtype)
+        out = _np.empty((B,) + self.outshape(batch.shape[1:]), dtype=batch.dtype)
 
         # Go through all possible combinations of transforms we get from the
         # augmenters for prediction.
@@ -125,10 +117,10 @@ class AugmentationPipeline(object):
             # Transform the images, one by one, independently.
             # Otherwise, the whole batch would be correlated.
             for i in range(B):
-                img = images[i].reshape(self.imshape)
+                img = batch[i]
                 for ia, a in zip(iaug, self.augmenters):
                     img = a.transform_pred(img, ia, fast)
-                out[i,:] = img.flat
+                out[i] = img
             yield out
 
 
@@ -138,7 +130,7 @@ class Augmenter(object):
     """
 
 
-    def npreds(self, fast=False):
+    def npreds(self, fast):
         """
         Return how many augmentations this augmenter generates at test-time.
         """
@@ -163,7 +155,7 @@ class Augmenter(object):
         """
         Randomly transform the given `img` for generating a new training sample.
         """
-        return img
+        return img, targets
 
 
     def transform_pred(self, img, i, fast=False):
@@ -174,23 +166,77 @@ class Augmenter(object):
         return img
 
 
-class HorizontalFlipper(Augmenter):
+class Flattener(Augmenter):
     """
-    Just flip the image horizontally.
+    Simply flattens what comes in.
     """
-    def npreds(self, fast=False):
-        return 2
+
+
+    def outshape(self, inshape):
+        return (_np.prod(inshape),)
 
     def transform_train(self, img, *targets):
-        return _np.fliplr(img) if _np.random.random() < 0.5 else img
+        return img.flat, targets
 
-    def transform_pred(self, img, i, fast=False):
-        if i == 0:
-            return img
-        elif i == 1:
-            return _np.fliplr(img)
-        else:
-            assert(False)
+
+    def transform_pred(self, img, *a, **kw):
+        return img.flat
+
+
+class Reshaper(Augmenter):
+    """
+    Simply reshapes what comes in.
+    """
+
+
+    def __init__(self, shape):
+        self.shape = shape
+
+
+    def outshape(self, inshape):
+        return self.shape
+
+
+    def transform_train(self, img, *targets):
+        return img.reshape(self.shape), targets
+
+
+    def transform_pred(self, img, *a, **kw):
+        return img.reshape(self.shape)
+
+
+class Flipper(Augmenter):
+    """
+    Flips the image across one or multiple dimensions.
+    This is a generalization of horizontal/vertical flips.
+    """
+
+
+    def __init__(self, dims):
+        """
+        `dims` is a list or tuple of dimensions which should be flipped.
+        """
+        self.dims = dims
+
+
+    def npreds(self, fast):
+        return 2**len(self.dims)
+
+
+    def transform_train(self, img, *targets):
+        for d in self.dims:
+            if _np.random.random() < 0.5:
+                img = _dfu.flipdim(img, d)
+        return img, targets
+
+
+    def transform_pred(self, img, i, fast):
+        assert i < self.npreds(fast), "This should never happen, please file an issue."
+
+        for idim, d in enumerate(self.dims):
+            if i >> idim & 1:
+                img = _dfu.flipdim(img, d)
+        return img
 
 
 class Cropper(Augmenter):
@@ -198,49 +244,83 @@ class Cropper(Augmenter):
     A typical Krizhevsky-style random cropper.
     Generates random crops of a given size during training and generates
     five crops (4 corners + center) during prediction.
+
+    TODO: At some point this should be fully generalized beyond 2D.
+          It's partially there already by parametrizing the x,y dims.
     """
 
 
-    def __init__(self, outshape):
+    def __init__(self, outshape, ydim=-2, xdim=-1):
+        """
+        Currently only for 2D images. `outshape` should contain two numbers,
+        the first for height and the second for width.
+
+        `ydim` and `xdim` are used to access the y and x dimensions in the
+        data. The defaults of `-2` and `-1` work well in the default case.
+        """
         self.osh = outshape
+        self.ydim = ydim
+        self.xdim = xdim
+
+        assert len(outshape) == 2, "Currently, only cropping of 2D images is supported. Please file an issue if you need 3D."
 
 
-    def npreds(self, fast=False):
+    def npreds(self, fast):
         return 5 if not fast else 1
 
 
     def outshape(self, inshape):
-        assert(self.osh[0] < inshape[0])
-        assert(self.osh[1] < inshape[1])
-        return self.osh
+        assert inshape[self.ydim] >= self.osh[0], "Can't crop larger than input!"
+        assert inshape[self.xdim] >= self.osh[1], "Can't crop larger than input!"
+
+        osh = list(inshape)
+        osh[self.ydim] = self.osh[0]
+        osh[self.xdim] = self.osh[1]
+        return tuple(osh)
 
 
     def transform_train(self, img, *targets):
-        dx = _np.random.randint(img.shape[1] - self.osh[1])
-        dy = _np.random.randint(img.shape[0] - self.osh[0])
-        return img[dy:dy+self.osh[0], dx:dx+self.osh[1]]
+        dx = _np.random.randint(img.shape[self.xdim] - self.osh[1])
+        dy = _np.random.randint(img.shape[self.ydim] - self.osh[0])
+
+        slicing = [slice(None)] * len(img.shape)
+        slicing[self.xdim] = slice(dx, dx+self.osh[1])
+        slicing[self.ydim] = slice(dy, dy+self.osh[0])
+        return img[slicing], targets
 
 
     def transform_pred(self, img, i, fast=False):
         if fast or i == 0:  # Center
-            dx = (img.shape[1] - self.osh[1])//2
-            dy = (img.shape[0] - self.osh[0])//2
-            return img[dy:dy+self.osh[0], dx:dx+self.osh[1]]
+            dx = (img.shape[self.xdim] - self.osh[1])//2
+            dy = (img.shape[self.ydim] - self.osh[0])//2
+            sx = slice(dx, dx+self.osh[1])
+            sy = slice(dy, dy+self.osh[0])
         elif i == 1:  # Top-left
-            return img[:self.osh[0], :self.osh[1]]
+            sx = slice(None, self.osh[1])
+            sy = slice(None, self.osh[0])
         elif i == 2:  # Top-right
-            return img[:self.osh[0], img.shape[1]-self.osh[1]:]
+            sx = slice(img.shape[self.xdim] - self.osh[1], None)
+            sy = slice(None, self.osh[0])
         elif i == 3:  # Bottom-left
-            return img[img.shape[0]-self.osh[0]:, :self.osh[1]]
+            sx = slice(None, self.osh[1])
+            sy = slice(img.shape[self.ydim] - self.osh[0], None)
         elif i == 4:  # Bottom-right
-            return img[img.shape[0]-self.osh[0]:, img.shape[1]-self.osh[1]:]
+            sx = slice(img.shape[self.xdim] - self.osh[1], None)
+            sy = slice(img.shape[self.ydim] - self.osh[0], None)
         else:
-            assert(False)
+            assert False, "This should never happen. Please file an issue."
+
+        slicing = [slice(None)] * len(img.shape)
+        slicing[self.xdim] = sx
+        slicing[self.ydim] = sy
+        return img[slicing]
 
 
 class Rotator(Augmenter):
     """
     Augments an image by rotating it.
+
+    TODO: Has not been tested with color-images yet!
     """
 
 
@@ -278,7 +358,7 @@ class Rotator(Augmenter):
             self.prefilter = False
 
 
-    def npreds(self, fast=False):
+    def npreds(self, fast):
         return len(self.pred_angles[fast])
 
 
@@ -286,7 +366,7 @@ class Rotator(Augmenter):
         deg = _np.random.uniform(self.pred_angles[False][0], self.pred_angles[False][-1])
         return _spint.rotate(img, deg,
             reshape=False, mode='nearest',
-            order=self.order, prefilter=self.prefilter)
+            order=self.order, prefilter=self.prefilter), targets
 
 
     def transform_pred(self, img, i, fast=False):

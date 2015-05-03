@@ -134,7 +134,9 @@ class StreaMiniOptimizer(object):
 
             # Potentially generate a new augmentation on-the-fly.
             if aug is not None:
-                bxs = _u.tuplize(aug.augbatch_train(*bxs+bts))
+                assert len(bxs) == 1, "Augmentation with multiple inputs not implemented yet. Please open an issue describing the use-case!"
+                bx, bts = aug.augbatch_train(bxs[0], *bts)
+                bxs = (bx,)
 
             self.model.pre_minibatch()
 

@@ -95,3 +95,12 @@ def check_random_state(seed):
 
 def check_all_initialized(model):
     return all(not _np.any(_np.isnan(p.get_value())) for p in model.params)
+
+
+def flipdim(a, dim):
+    """
+    `flipdim(a, 0)` is equivalent to `flipud(a)`,
+    `flipdim(a, 1)` is equivalent to `fliplr(a)` and the rest follows naturally.
+    """
+    # Put the axis in front, flip that axis, then move it back.
+    return _np.swapaxes(_np.swapaxes(a, 0, dim)[::-1], 0, dim)
