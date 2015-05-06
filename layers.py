@@ -229,6 +229,22 @@ class Layer(object):
         pass
 
 
+    def pre_finalize(self):
+        pass
+
+
+    def finalize_pre_minibatch(self):
+        pass
+
+
+    def finalize_post_minibatch(self):
+        pass
+
+
+    def post_finalize(self):
+        pass
+
+
 class FullyConnected(Layer):
     """
     Fully-connected layer is the typical "hidden" layer. Basically implements
@@ -580,6 +596,168 @@ class Dropout(Layer):
 
     def pred_expr(self, *Xs):
         return _u.maybetuple(x * self.p_keep for x in _u.tuplize(Xs))
+
+
+class BatchNormalization(Layer):
+    """
+    See Batch Normalization: Accelerating Deep Network Training by Reducing Internal Covariate Shift
+    by Sergey Ioffe and Christian Szegedy.
+
+    This layer implements the fully-connected version of batch-normalization.
+
+    This is the magic sauce =)
+    """
+
+
+    def __init__(self, nfeat, post=True, momentum=False, eps=1e-6):
+        """
+        Very sad we need to hardcode the inshape here!
+        """
+        super(BatchNormalization, self).__init__()
+
+        self.eps = eps
+        self.post = post
+        self.momentum = momentum
+
+        # Default value for undecided people.
+        if self.momentum is True:
+            self.momentum = 0.1
+
+        # Use the method names corresponding to whether we want the to be run
+        # during training, or in the finalization step.
+        if self.post:
+            self.pre_finalize = self._pre
+            self.post_finalize = self._post
+            self.finalize_pre_minibatch = self._pre_mini
+        else:
+            self.pre_epoch = self._pre
+            self.post_epoch = self._post
+            self.pre_minibatch = self._pre_mini
+
+        shape = _u.tuplize(nfeat)
+
+        self.gamma = self._newparam("bn_gamma", shape, val=1)
+        self.beta = self._newparam("bn_beta", shape, val=0)
+
+        # Just a utility to avoid code (and memory) repetition
+        self._zero = _np.zeros(shape, dtype=_th.config.floatX)
+
+        # These need to be filled during the switch from train to pred.
+        # Add the leading dimension for easier correct broadcasting.
+        self.sum_means = _th.shared(self._zero, name="bn_sum_means")
+        self.sum_vars = _th.shared(self._zero, name="bn_sum_vars")
+
+        _nan = _np.full(shape, _np.nan, dtype=_th.config.floatX)
+        self.pgamma = _th.shared(_nan, name="bn_pgamma")
+        self.pbeta = _th.shared(_nan, name="bn_pbeta")
+
+
+    def train_expr(self, X, **kw):
+
+        # The main difference for convolutional BN: also average over
+        # all regions a filter has been applied.
+        # There are some minor implementation differences which mainly
+        # affect speed a little.
+        conv = X.ndim == 4
+        axes = [0, 2, 3] if conv else 0
+
+        # Mean across minibatch examples. The output will be of `inshape`.
+        mean = _T.mean(X, axis=axes, keepdims=True)
+
+        # Computing it ourselves using above mean is marginally faster.
+        var = _T.mean((X-mean)**2, axis=axes, keepdims=True)
+
+        if self.post:
+            key = 'fin_updates'
+        else:
+            key = 'fwd_updates'
+
+        assert key in kw, "This should never happen, please file an issue!"
+
+        if self.momentum is False:
+            # In this approach, we sum all statistics throughout an epoch.
+            kw[key].append((self.sum_means, self.sum_means + mean.squeeze()))
+            kw[key].append((self.sum_vars, self.sum_vars + var.squeeze()))
+        else:
+            # Otherwise, we use a momentum-based running-mean.
+            # This is how Torch does it, but there's no mention of it in
+            # the original paper.
+            kw[key].append((self.sum_means, (1 - self.momentum) * self.sum_means + self.momentum * mean.squeeze()))
+            kw[key].append((self.sum_vars, (1 - self.momentum) * self.sum_vars + self.momentum * var.squeeze()))
+
+        # Normalize.
+        Xn = (X - mean)/_T.sqrt(var + self.eps)
+
+        # Re-parametrize
+        if conv:
+            return Xn * self.gamma.dimshuffle('x', 0, 'x', 'x') + self.beta.dimshuffle('x', 0, 'x', 'x')
+        else:
+            return Xn * self.gamma + self.beta
+
+
+    def _pre(self):
+        """ This will be called at the beginning of an epoch/postprocessing. """
+        self.nmini = 0
+
+        # Reset the collected means/variances in the case where we count for a
+        # whole epoch.
+        if self.momentum is False:
+            self.sum_means.set_value(self._zero)
+            self.sum_vars.set_value(self._zero)
+
+
+    def _pre_mini(self):
+        """
+        This will be called before each minibatch.
+        Counts the number of minibatches we're going throug.
+        """
+        self.nmini += 1
+
+
+    def _post(self):
+        """ This will be called at the end of an epoch/postprocessing. """
+
+        # Retrieve the means and variances.
+        mean = self.sum_means.get_value()
+        var = self.sum_vars.get_value()
+
+        # If we're not momentum-based, convert sum over mini-batches to mean.
+        if self.momentum is False and self.nmini > 1:
+            mean /= self.nmini
+            var /= self.nmini-1
+
+        std = _np.sqrt(var + self.eps)
+
+        # And compute the predictor's modified gamma and beta values.
+        g = self.gamma.get_value()
+        b = self.beta.get_value()
+
+        pgamma = g/std
+        self.pgamma.set_value(pgamma)
+        self.pbeta.set_value(b - pgamma*mean)
+
+        # TODO: If we did fuse this with FullyConnected, we could actually
+        # merge the matrices, further speeding up prediction.
+
+
+    def pred_expr(self, X):
+        if X.ndim == 4:
+            pgamma = self.pgamma.dimshuffle('x', 0, 'x', 'x')
+            pbeta = self.pbeta.dimshuffle('x', 0, 'x', 'x')
+            return X * pgamma + pbeta
+        else:
+            return X * self.pgamma + self.pbeta
+
+
+    def reinit(self, rng):
+        """
+        We need a custom reinit because we also need to reinit our running
+        means and averages!
+        """
+        super(BatchNormalization, self).reinit(rng)
+
+        self.sum_means.set_value(self._zero)
+        self.sum_vars.set_value(self._zero)
 
 
 class Conv2D(Layer):

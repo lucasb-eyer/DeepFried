@@ -48,6 +48,11 @@ class Sequence(_Layer):
         self.post_minibatch =_mkproxy(self, 'post_minibatch')
         self.post_epoch =_mkproxy(self, 'post_epoch')
 
+        self.pre_finalize =_mkproxy(self, 'pre_finalize')
+        self.finalize_pre_minibatch =_mkproxy(self, 'finalize_pre_minibatch')
+        self.finalize_post_minibatch =_mkproxy(self, 'finalize_post_minibatch')
+        self.post_finalize =_mkproxy(self, 'post_finalize')
+
 
     def append(self, layer, init_previous=True, initializes=None):
         """
@@ -183,6 +188,11 @@ class Parallel(_Layer):
         self.pre_minibatch =_mkproxy(self, 'pre_minibatch')
         self.post_minibatch =_mkproxy(self, 'post_minibatch')
         self.post_epoch =_mkproxy(self, 'post_epoch')
+
+        self.pre_finalize =_mkproxy(self, 'pre_finalize')
+        self.finalize_pre_minibatch =_mkproxy(self, 'finalize_pre_minibatch')
+        self.finalize_post_minibatch =_mkproxy(self, 'finalize_post_minibatch')
+        self.post_finalize =_mkproxy(self, 'post_finalize')
 
 
     def append(self, layer):

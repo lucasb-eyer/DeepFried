@@ -55,8 +55,12 @@ class StreaMiniOptimizer(object):
         self.targets = _u.tuplize(self.cost.make_target(*tnames))
         self.xtras = _u.tuplize(extra_outs, tuplize_none=True)
 
-        self.xtra_updates = []
-        train_expr = _u.tuplize(self.model.train_expr(*self.Xs, updates=self.xtra_updates))
+        # These two will collect any additional updates that layers may have,
+        # for example batch-normalization's statistics collection.
+        self.fwd_updates = []
+        self.fin_updates = []
+
+        train_expr = _u.tuplize(self.model.train_expr(*self.Xs, fwd_updates=self.fwd_updates, fin_updates=self.fin_updates))
         self.cost_expr = self.cost.out_expr(self.model, train_expr, self.targets)
         self.outs = (self.cost_expr,) + tuple(
             x.out_expr(self.model, train_expr, self.targets) for x in self.xtras
@@ -64,15 +68,23 @@ class StreaMiniOptimizer(object):
 
 
     def _mk_train_fn(self, name, updates, extra_in=None, extra_out=None):
-        """
-        To be used by specializations only.
-        """
+        """ To be used by specializations only. """
         self.fn_train = _th.function(
             inputs=self.Xs + self.targets + _u.tuplize(extra_in, tuplize_none=True),
             outputs=self.outs + _u.tuplize(extra_out, tuplize_none=True),
-            updates=updates + self.xtra_updates,
+            updates=updates + self.fwd_updates,
             name=name
         )
+
+        if len(self.fin_updates):
+            # Because targets might or might not be used by the layers in the
+            # extra update rules, we'll just allow for unused inputs.
+            self.fn_finalize = _th.function(
+                inputs=self.Xs + self.targets,
+                updates=self.fin_updates,
+                name=name + " finalize",
+                on_unused_input='ignore'
+            )
 
 
     def reinit(self):
@@ -156,6 +168,28 @@ class StreaMiniOptimizer(object):
         return _u.maybetuple((self.cost.aggregate_batches(costs),)
                         + tuple(x.aggregate_batches(b) for x, b in zip(self.xtras, zip(*xtras))))
         # The above zip transposes from minibatches of extras to extras of minibatches.
+
+
+    def finalize(self, X, t, batchsize=None, **kwargs):
+        """
+        A forward-pass through the training data, but using only the
+        `fin_updates` of layers such as batch-normalization.
+
+        The call is just like that of `fit_epoch`, but a few parameters as well
+        as most comments have been omitted.
+        """
+        # Early-exit if unnecessary.
+        if len(self.fin_updates) == 0:
+            return
+
+        bs = batchsize or self.batchsize
+
+        self.model.pre_finalize()
+        for bxs, bts in zip(_u.batched(bs, *_u.tuplize(X)), _u.batched(bs, *_u.tuplize(t))):
+            self.model.finalize_pre_minibatch()
+            self.fn_finalize(*_u.tuplize(bxs)+_u.tuplize(bts), **kwargs)
+            self.model.finalize_post_minibatch()
+        self.model.post_finalize()
 
 
 class StreaMiniSGD(StreaMiniOptimizer):
