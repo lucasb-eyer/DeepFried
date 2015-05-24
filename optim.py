@@ -170,7 +170,7 @@ class StreaMiniOptimizer(object):
         # The above zip transposes from minibatches of extras to extras of minibatches.
 
 
-    def finalize(self, X, t, batchsize=None, **kwargs):
+    def finalize(self, X, t, batchsize=None, aug=None, fast=False, **kwargs):
         """
         A forward-pass through the training data, but using only the
         `fin_updates` of layers such as batch-normalization.
@@ -184,11 +184,20 @@ class StreaMiniOptimizer(object):
 
         bs = batchsize or self.batchsize
 
+        # Ignore that one.
+        kwargs.pop('shuf', None)
+
         self.model.pre_finalize()
         for bxs, bts in zip(_u.batched(bs, *_u.tuplize(X)), _u.batched(bs, *_u.tuplize(t))):
-            self.model.finalize_pre_minibatch()
-            self.fn_finalize(*_u.tuplize(bxs)+_u.tuplize(bts), **kwargs)
-            self.model.finalize_post_minibatch()
+            if aug is not None:
+                for bxs_aug in aug.augbatch_pred(*_u.tuplize(bxs), fast=fast):
+                    self.model.finalize_pre_minibatch()
+                    self.fn_finalize(*_u.tuplize(bxs_aug)+_u.tuplize(bts), **kwargs)
+                    self.model.finalize_post_minibatch()
+            else:
+                self.model.finalize_pre_minibatch()
+                self.fn_finalize(*_u.tuplize(bxs)+_u.tuplize(bts), **kwargs)
+                self.model.finalize_post_minibatch()
         self.model.post_finalize()
 
 
